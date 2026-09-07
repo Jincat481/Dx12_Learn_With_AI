@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{7B2C4E51-9E3A-4C21-8F0B-6D1A2C3E4F50}</ProjectGuid>
+    <RootNamespace>DirectXProj</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <!-- 설치된 Visual Studio 에 맞는 툴셋을 고른다 (VS2022=v143, VS2026=v145) -->
+    <DefaultToolset Condition="'$(VisualStudioVersion)' &gt;= '18.0'">v145</DefaultToolset>
+    <DefaultToolset Condition="'$(DefaultToolset)'==''">v143</DefaultToolset>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>$(DefaultToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>$(DefaultToolset)</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)Build\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Build\Intermediate\$(Configuration)\</IntDir>
+    <!-- Shaders / Assets 를 상대 경로로 찾을 수 있도록 작업 폴더를 프로젝트 폴더로 둔다 -->
+    <LocalDebuggerWorkingDirectory>$(ProjectDir)</LocalDebuggerWorkingDirectory>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <!-- 소스가 UTF-8(BOM 없음)이므로 인코딩을 명시한다 -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;HOT_RELOAD_ENABLED=1;SHADER_CACHE_ENABLED=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <!-- 배포 빌드에서는 Hot Reload 와 셰이더 캐시 코드를 제외한다 (S26) -->
+      <PreprocessorDefinitions>NDEBUG;HOT_RELOAD_ENABLED=0;SHADER_CACHE_ENABLED=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Core\stdafx.cpp" />
+    <ClCompile Include="src\Core\Window.cpp" />
+    <ClCompile Include="src\Core\Graphics.cpp" />
+    <ClCompile Include="src\Core\Game.cpp" />
+    <ClCompile Include="src\Core\TimeManager.cpp" />
+    <ClCompile Include="src\Core\ObjectRegistry.cpp" />
+    <ClCompile Include="src\Engine\Component.cpp" />
+    <ClCompile Include="src\Engine\GameObject.cpp" />
+    <ClCompile Include="src\Engine\Transform.cpp" />
+    <ClCompile Include="src\Engine\SpriteRenderer.cpp" />
+    <ClCompile Include="src\Engine\Scene.cpp" />
+    <ClCompile Include="src\Engine\SceneManager.cpp" />
+    <ClCompile Include="src\Engine\ComponentFactory.cpp" />
+    <ClCompile Include="src\Engine\Picker.cpp" />
+    <ClCompile Include="src\Graphics\Vertex.cpp" />
+    <ClCompile Include="src\Graphics\Texture.cpp" />
+    <ClCompile Include="src\Graphics\TextureManager.cpp" />
+    <ClCompile Include="src\Graphics\Shader.cpp" />
+    <ClCompile Include="src\Graphics\ShaderManager.cpp" />
+    <ClCompile Include="src\Input\InputManager.cpp" />
+    <ClCompile Include="src\Utils\Json.cpp" />
+    <ClCompile Include="src\Utils\StringUtil.cpp" />
+    <ClCompile Include="src\Utils\IdGenerator.cpp" />
+    <ClCompile Include="src\Utils\Paths.cpp" />
+    <ClCompile Include="src\Game\PlayerController.cpp" />
+    <ClCompile Include="src\Editor\EditorStyle.cpp" />
+    <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
+    <ClCompile Include="src\Editor\InspectorPanel.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="src\Core\stdafx.h" />
+    <ClInclude Include="src\Core\Window.h" />
+    <ClInclude Include="src\Core\Graphics.h" />
+    <ClInclude Include="src\Core\Game.h" />
+    <ClInclude Include="src\Core\TimeManager.h" />
+    <ClInclude Include="src\Core\ObjectRegistry.h" />
+    <ClInclude Include="src\Engine\Component.h" />
+    <ClInclude Include="src\Engine\GameObject.h" />
+    <ClInclude Include="src\Engine\Transform.h" />
+    <ClInclude Include="src\Engine\SpriteRenderer.h" />
+    <ClInclude Include="src\Engine\Scene.h" />
+    <ClInclude Include="src\Engine\SceneManager.h" />
+    <ClInclude Include="src\Engine\ComponentFactory.h" />
+    <ClInclude Include="src\Engine\Picker.h" />
+    <ClInclude Include="src\Graphics\Vertex.h" />
+    <ClInclude Include="src\Graphics\Texture.h" />
+    <ClInclude Include="src\Graphics\TextureManager.h" />
+    <ClInclude Include="src\Graphics\Shader.h" />
+    <ClInclude Include="src\Graphics\ShaderManager.h" />
+    <ClInclude Include="src\Input\InputManager.h" />
+    <ClInclude Include="src\Utils\Json.h" />
+    <ClInclude Include="src\Utils\StringUtil.h" />
+    <ClInclude Include="src\Utils\IdGenerator.h" />
+    <ClInclude Include="src\Utils\Paths.h" />
+    <ClInclude Include="src\Game\PlayerController.h" />
+    <ClInclude Include="src\Editor\EditorStyle.h" />
+    <ClInclude Include="src\Editor\HierarchyPanel.h" />
+    <ClInclude Include="src\Editor\InspectorPanel.h" />
+  </ItemGroup>
+
+  <!-- HLSL 은 런타임에 D3DCompileFromFile 로 컴파일하므로 빌드에서 제외한다 -->
+  <ItemGroup>
+    <None Include="Shaders\SpriteVS.hlsl" />
+    <None Include="Shaders\SpritePS.hlsl" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

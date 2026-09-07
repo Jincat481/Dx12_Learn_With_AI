@@ -1,69 +1,71 @@
-# Prerequisites
-*.d
+# =============================================================
+# Visual Studio / C++ (DirectX)
+# =============================================================
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# ---- Visual Studio 사용자·캐시 폴더 ----
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+*.opendb
+*.sdf
+*.opensdf
 
-# Precompiled Headers
-*.gch
+# ---- 미리 컴파일된 헤더 캐시 (100MB 넘는 주범) ----
+ipch/
+*.ipch
 *.pch
 
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Build directories
-build/
+# ---- 빌드 산출물 ----
 Build/
-build-*/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Dd]ebugPublic/
+x64/
+x86/
+Win32/
+ARM/
+ARM64/
 
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-
-# Temporary files
-*.tmp
+# ---- 컴파일/링크 중간 파일 ----
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.tlog
+*.tli
+*.tlh
+*.res
+*.rsp
+*.recipe
+*.lastbuildstate
 *.log
+*.aps
+*.ncb
+*.cache
+
+# ---- 셰이더 컴파일 캐시 (HLSL 원본만 버전 관리) ----
+*.cso
+
+# ---- 런타임 저장 파일 ----
+Saves/
+Scenes/
+
+# ---- 그 밖 ----
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.tmp
 *.bak
-*.swp
-
-# vcpkg
-vcpkg_installed/
-
-# debug information files
-*.dwo
-
-# test output & cache
-Testing/
-.cache/

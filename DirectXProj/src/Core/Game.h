@@ -1,0 +1,60 @@
+#pragma once
+#include "Core/stdafx.h"
+#include "Editor/HierarchyPanel.h"
+#include "Editor/InspectorPanel.h"
+
+class Window;
+class Graphics;
+class GameObject;
+
+// =============================================================
+// Game (과제 1, 5, 6)
+//  시스템 초기화 순서와 게임 루프를 담당한다.
+//
+//  게임 루프
+//      메시지 처리 → 입력 갱신 → (Hot Reload 검사) → 씬 Update
+//      → BeginFrame → 씬 Render → EndFrame → 프레임 끝 정리
+// =============================================================
+class Game
+{
+public:
+    Game();
+    ~Game();
+
+    bool Initialize(HINSTANCE hInstance, int width = 1280, int height = 720);
+    int  Run();
+    void Shutdown();
+
+private:
+    void RegisterComponentTypes();     // ComponentFactory 등록 (과제 5)
+    void BuildDefaultScene();          // 데모 씬 구성
+    void UpdatePickingAndDrag();       // 마우스 피킹 / 선택 하이라이트 / 드래그 이동
+    void UpdateEditorUI();             // Hierarchy / Inspector 입력 처리
+    void DrawEditorUI();               // 두 패널을 한 번의 GDI 오버레이로 그린다
+    void ApplyReparent(uint64_t dragId, uint64_t newParentId);
+    GameObject* GetSelectedObject() const;
+    void HandleFrameEndCommands();     // 저장/로드처럼 프레임 경계에서만 안전한 작업
+    void UpdateWindowTitle();
+
+    std::unique_ptr<Window>   m_window;
+    std::unique_ptr<Graphics> m_graphics;
+
+    bool m_comInitialized = false;
+    bool m_running = false;
+
+    std::wstring m_savePath;
+    float m_titleTimer = 0.0f;
+
+    // 선택된 오브젝트는 포인터가 아니라 ID 로 들고 있는다. (과제 4 의 ObjectRegistry 규칙)
+    // 그래야 선택한 오브젝트가 삭제되거나 씬을 다시 로드해도 잘못된 포인터를 쓰지 않는다.
+    uint64_t m_selectedId = 0;
+
+    // 드래그 상태. 누른 순간의 "오브젝트 위치 - 커서 위치" 차이를 기억해 두었다가
+    // 매 프레임 커서에 그 차이를 더한다. 그래야 잡은 지점이 튀지 않는다.
+    bool              m_dragging = false;
+    DirectX::XMFLOAT3 m_dragOffset{ 0.0f, 0.0f, 0.0f };
+
+    // 에디터 UI
+    HierarchyPanel m_hierarchy;
+    InspectorPanel m_inspector;
+};
