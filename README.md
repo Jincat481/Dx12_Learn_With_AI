@@ -10,7 +10,8 @@
 <img width="1270" height="751" alt="image" src="https://github.com/user-attachments/assets/77ec238a-9072-4b26-b826-7136be0e5b24" />
 <img width="1275" height="741" alt="image" src="https://github.com/user-attachments/assets/91f09859-2b79-48c4-b3b7-343b0681b07c" />
 <img width="1274" height="743" alt="image" src="https://github.com/user-attachments/assets/a5a26a01-4a80-4cd3-a186-b84433f5fc97" />
-<img width="1274" height="743" alt="image" src="https://github.com/user-attachments/assets/8fd9a634-36df-424e-8e5f-4872e2a5e8ce" />
+<img width="1275" height="742" alt="image" src="https://github.com/user-attachments/assets/870dc9f3-5d4c-44e5-a2b4-3daa838cc78c" />
+
 
 ## 조작
 
