@@ -80,7 +80,8 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
     m_running = true;
 
     dxutil::DebugLog(L"[Game] 초기화 완료");
-    dxutil::DebugLog(L"  [터레인] 가운데버튼 드래그 궤도회전 | 휠 줌 | WASD 이동 | Q,E 높이 | F 리셋 | G 와이어프레임");
+    dxutil::DebugLog(L"  [카메라] 우클릭 누른 채 : 마우스 회전 | WASD 이동 | Q,E 상하 | 휠 속도조절");
+    dxutil::DebugLog(L"           F : 기본 위치로 리셋");
     dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 켜기/끄기 | N 새 지형 | P 펄린<->값 노이즈");
     dxutil::DebugLog(L"  [공통] ESC 메뉴로 | H Hierarchy | I Inspector");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
@@ -118,9 +119,8 @@ void Game::BuildTerrainScene(TerrainMode mode, const std::string& sceneName)
 
     GameObject* cameraObject = scene->CreateGameObject("MainCamera");
     Camera* camera = cameraObject->AddComponent<Camera>();
-    camera->SetTarget(XMFLOAT3(0.0f, 0.0f, 0.0f));
-    camera->SetDistance(90.0f);
-    camera->SetAngles(35.0f, 30.0f);
+    camera->SetPosition(XMFLOAT3(0.0f, 60.0f, -90.0f));
+    camera->LookAt(XMFLOAT3(0.0f, 0.0f, 0.0f));
 
     GameObject* terrainObject = scene->CreateGameObject("Terrain");
     TerrainRenderer* terrain = terrainObject->AddComponent<TerrainRenderer>();
@@ -509,11 +509,8 @@ void Game::UpdatePickingAndDrag()
     if (m_dragging && !input.GetMouseButton(InputManager::Left))
         m_dragging = false;
 
-    if (input.GetMouseButtonDown(InputManager::Right) && !overPanel)
-    {
-        m_selectedId = 0;
-        m_dragging = false;
-    }
+    // 우클릭은 카메라 프리룩에 쓰므로 선택 해제로 쓰지 않는다.
+    // 선택을 풀려면 빈 곳을 좌클릭하면 된다.
 
     // 하이라이트 상태를 매 프레임 다시 칠한다.
     // ID 로 비교하므로 선택한 오브젝트가 F2 로 삭제되면 선택이 저절로 풀린다.
