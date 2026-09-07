@@ -53,7 +53,8 @@ public:
         DirectX::XMFLOAT4 params{ 0.0f, 0.0f, 0.0f, 0.0f };        // x,y 격자 칸 수 / z 와이어프레임 / w 높이 사용
         DirectX::XMFLOAT4 heightRange{ 0.0f, 1.0f, 0.0f, 0.0f };   // 색상 램프용 최저/최고 높이
         DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.28f };  // xyz 방향 / w 환경광
-        DirectX::XMFLOAT4 splat{ 24.0f, 0.0f, 0.0f, 0.0f };               // x 타일 횟수 / y 스플래팅 on
+        DirectX::XMFLOAT4 splat{ 24.0f, 0.0f, 0.0f, 0.0f };               // x 타일 / y 스플래팅 / z 디버그색 / w 모프
+        DirectX::XMFLOAT4 lodSelect{ 0.0f, 0.0f, 0.0f, 0.0f };            // 현재 LOD 성분만 1
         bool wireframe = false;
 
         // 인덱스 버퍼의 일부만 그릴 때 사용한다(청크 LOD). count 가 0 이면 메시 전체.

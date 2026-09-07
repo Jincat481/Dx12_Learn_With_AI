@@ -39,8 +39,12 @@ private:
 
     RECT m_panelRect{};
 
-    static constexpr int kPanelWidth = 520;
+    int m_entryHeight = 62;
+
+    static constexpr int kPanelWidth = 560;
     static constexpr int kEntryHeight = 62;
+    static constexpr int kMinEntryHeight = 44;
+    static constexpr int kMargin = 12;
     static constexpr int kEntryGap = 10;
     static constexpr int kHeaderHeight = 96;
     static constexpr int kPadding = 22;

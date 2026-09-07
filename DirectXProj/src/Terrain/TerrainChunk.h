@@ -28,6 +28,8 @@ namespace terrain
 
         // originX/Z : 청크 왼쪽 위 모서리의 월드 좌표
         // cells     : 청크 한 변의 칸 수 (2의 거듭제곱이어야 LOD 를 끝까지 내릴 수 있다)
+        void SetSkirtEnabled(bool enabled) { m_skirtEnabled = enabled; }
+
         bool Build(ID3D11Device* device,
                    float originX, float originZ,
                    int cells, float cellSize,
@@ -57,6 +59,7 @@ namespace terrain
         UINT m_indexOffset[kMaxLod] = {};
         UINT m_indexCount[kMaxLod] = {};
         int  m_lodCount = 1;
+        bool m_skirtEnabled = true;
 
         DirectX::XMFLOAT3 m_center{};
         DirectX::XMFLOAT3 m_extents{};

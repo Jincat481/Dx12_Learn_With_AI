@@ -434,7 +434,9 @@ bool Graphics::CreateMeshPipeline()
     // ---- 래스터라이저 상태 (S32) ----
     D3D11_RASTERIZER_DESC solid = {};
     solid.FillMode        = D3D11_FILL_SOLID;
-    solid.CullMode        = D3D11_CULL_BACK;    // 뒷면은 그리지 않는다(정점 순서가 맞아야 한다)
+    //  지형은 하이트필드라 대부분의 면이 위를 향한다. 뒷면 컬링으로 걸러지는 양이 적고,
+    //  스커트(테두리 벽)의 앞뒤를 따지지 않아도 되므로 컬링을 끈다. (S52)
+    solid.CullMode        = D3D11_CULL_NONE;
     solid.FrontCounterClockwise = FALSE;        // 시계 방향이 앞면 (왼손 좌표계 기본)
     solid.DepthClipEnable = TRUE;
 
@@ -525,6 +527,7 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
         cb->params = drawParams.params;
         cb->heightRange = drawParams.heightRange;
         cb->splat = drawParams.splat;
+        cb->lodSelect = drawParams.lodSelect;
 
         // 방향광은 셰이더에서 정규화해 쓰지만, 여기서 미리 맞춰 두면 안전하다.
         XMVECTOR light = XMLoadFloat4(&drawParams.lightDirection);

@@ -91,6 +91,7 @@ bool ChunkedTerrainRenderer::RebuildChunks()
             const float originZ = halfDepth - cz * chunkSize;   // +Z 에서 -Z 로 내려간다
 
             const size_t index = static_cast<size_t>(cz) * m_chunksX + cx;
+            m_chunks[index].SetSkirtEnabled(m_skirtEnabled);
             m_chunks[index].Build(m_graphics->GetDevice(),
                                   originX, originZ,
                                   m_cellsPerChunk, m_cellSize,
@@ -100,6 +101,7 @@ bool ChunkedTerrainRenderer::RebuildChunks()
 
     m_quadTree.Build(m_chunksX, m_chunksZ, m_chunks);
     m_chunkLod.assign(m_chunks.size(), 0);
+    m_chunkMorph.assign(m_chunks.size(), 0.0f);
 
     dxutil::DebugLog(L"[ChunkedTerrain] 청크 %d x %d (칸 %d, 총 %zu개)",
                      m_chunksX, m_chunksZ, m_cellsPerChunk, m_chunks.size());
@@ -123,6 +125,42 @@ int ChunkedTerrainRenderer::SelectLod(const XMFLOAT3& chunkCenter, const XMFLOAT
 
     const int lod = static_cast<int>(distance / m_lodDistance);
     return (std::max)(0, (std::min)(terrain::TerrainChunk::kMaxLod - 1, lod));
+}
+
+// -------------------------------------------------------------
+// 지오모핑 계수 (S53)
+//  LOD 가 바뀌는 거리에 가까워질수록 0 -> 1 로 올라간다.
+//  전환 순간에 1 이 되므로, 인덱스를 바꿔 끼울 때는 이미 모양이 같다.
+// -------------------------------------------------------------
+float ChunkedTerrainRenderer::SelectMorph(const XMFLOAT3& chunkCenter, const XMFLOAT3& eye) const
+{
+    if (!m_lodEnabled || !m_morphEnabled)
+        return 0.0f;
+
+    const float dx = chunkCenter.x - eye.x;
+    const float dy = chunkCenter.y - eye.y;
+    const float dz = chunkCenter.z - eye.z;
+    const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    const float band = distance / m_lodDistance;
+    const float fraction = band - std::floor(band);
+
+    // 구간의 뒤쪽 40% 에서만 서서히 옮긴다. 너무 일찍 시작하면 항상 뭉개져 보인다.
+    const float start = 0.6f;
+    if (fraction <= start)
+        return 0.0f;
+
+    const float t = (fraction - start) / (1.0f - start);
+    return t * t * (3.0f - 2.0f * t);   // smoothstep
+}
+
+void ChunkedTerrainRenderer::SetSkirtEnabled(bool enabled)
+{
+    if (m_skirtEnabled == enabled)
+        return;
+
+    m_skirtEnabled = enabled;
+    m_dirty = true;   // 스커트는 메시에 들어 있으므로 다시 만들어야 한다
 }
 
 // -------------------------------------------------------------
@@ -161,11 +199,17 @@ void ChunkedTerrainRenderer::Update()
     // LOD 결정
     if (m_chunkLod.size() != m_chunks.size())
         m_chunkLod.assign(m_chunks.size(), 0);
+    if (m_chunkMorph.size() != m_chunks.size())
+        m_chunkMorph.assign(m_chunks.size(), 0.0f);
 
     for (int index : m_visibleChunks)
     {
-        if (index >= 0 && index < static_cast<int>(m_chunks.size()))
-            m_chunkLod[index] = SelectLod(m_chunks[index].GetCenter(), eye);
+        if (index < 0 || index >= static_cast<int>(m_chunks.size()))
+            continue;
+
+        const XMFLOAT3& center = m_chunks[index].GetCenter();
+        m_chunkLod[index] = SelectLod(center, eye);
+        m_chunkMorph[index] = SelectMorph(center, eye);
     }
 }
 
@@ -235,7 +279,14 @@ void ChunkedTerrainRenderer::Render()
                                1.0f);
 
         draw.heightRange = XMFLOAT4(chunk.GetMinHeight(), chunk.GetMaxHeight(), 0.0f, 0.0f);
-        draw.splat = XMFLOAT4(6.0f, splat ? 1.0f : 0.0f, debugColor ? 1.0f : 0.0f, 0.0f);
+        const float morph = m_chunkMorph[index];
+        draw.splat = XMFLOAT4(6.0f, splat ? 1.0f : 0.0f, debugColor ? 1.0f : 0.0f, morph);
+
+        // 현재 LOD 에 해당하는 모프 타깃만 고르도록 성분 하나만 1 로 둔다.
+        draw.lodSelect = XMFLOAT4(lod == 0 ? 1.0f : 0.0f,
+                                  lod == 1 ? 1.0f : 0.0f,
+                                  lod == 2 ? 1.0f : 0.0f,
+                                  lod == 3 ? 1.0f : 0.0f);
 
         if (wireframe)
             draw.color = m_wireColor;

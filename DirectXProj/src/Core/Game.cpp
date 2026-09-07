@@ -179,17 +179,31 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     height.frequency = 0.006f;
     terrain->SetHeightParams(height);
 
-    if (mode == ChunkedMode::Culling)
+    terrain->SetCullingEnabled(true);
+
+    switch (mode)
     {
-        terrain->SetCullingEnabled(true);
+    case ChunkedMode::Culling:
         terrain->SetLodEnabled(false);
+        terrain->SetSkirtEnabled(false);
         terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::ChunkColor);
-    }
-    else
-    {
-        terrain->SetCullingEnabled(true);
+        break;
+
+    case ChunkedMode::Lod:
+        // 스텝 6 : LOD 만. 스커트와 모핑을 꺼서 균열과 팝핑이 그대로 보이게 한다.
         terrain->SetLodEnabled(true);
+        terrain->SetSkirtEnabled(false);
+        terrain->SetMorphEnabled(false);
         terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::LodColor);
+        break;
+
+    case ChunkedMode::LodAdvanced:
+        // 스텝 6-2 : 스커트로 균열을 메우고 지오모핑으로 팝핑을 없앤다.
+        terrain->SetLodEnabled(true);
+        terrain->SetSkirtEnabled(true);
+        terrain->SetMorphEnabled(true);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::LodColor);
+        break;
     }
 }
 
@@ -296,6 +310,11 @@ void Game::SetupShowcaseList()
         L"터레인 · 스텝 6  거리 기반 LOD",
         L"거리에 따라 인덱스 간격을 벌려 삼각형 줄이기 (S51)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Lod, "Terrain_Step6"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 6-2  스티칭 & 지오모핑",
+        L"스커트로 LOD 경계 균열 메우기 · 모프 타깃으로 팝핑 제거 (S52~S53)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::LodAdvanced, "Terrain_Step6b"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -481,6 +500,8 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"Tab", L"표시 모드", chunked->GetDisplayModeName(), true });
         lines.push_back({ L"C", L"절두체 컬링", chunked->IsCullingEnabled() ? L"켬" : L"끔", true });
         lines.push_back({ L"L", L"거리 LOD", chunked->IsLodEnabled() ? L"켬" : L"끔", true });
+        lines.push_back({ L"K", L"스커트", chunked->IsSkirtEnabled() ? L"켬" : L"끔", true });
+        lines.push_back({ L"M", L"지오모핑", chunked->IsMorphEnabled() ? L"켬" : L"끔", true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
         lines.push_back({ L"", L"그리는 중", visible, true });
         lines.push_back({ L"", L"", triangles, true });
@@ -729,10 +750,9 @@ void Game::HandleFrameEndCommands()
     {
         if (!object) continue;
 
-        TerrainRenderer* terrain = object->GetComponent<TerrainRenderer>();
-        if (!terrain) continue;
-
-        // Tab 하나로 표시 모드를 순환한다. (예전의 G / T / B 를 합쳤다)
+        // ---- 청크 지형 (스텝 5 이후) ----
+        //  주의 : TerrainRenderer 를 먼저 걸러 내면 여기까지 오지 못한다.
+        //         청크 씬에는 TerrainRenderer 가 없기 때문이다.
         if (ChunkedTerrainRenderer* chunked = object->GetComponent<ChunkedTerrainRenderer>())
         {
             if (input.GetKeyDown(VK_TAB))
@@ -750,10 +770,27 @@ void Game::HandleFrameEndCommands()
                 chunked->ToggleLod();
                 dxutil::DebugLog(L"[Terrain] 거리 LOD %s", chunked->IsLodEnabled() ? L"켬" : L"끔");
             }
+            if (input.GetKeyDown('K'))
+            {
+                chunked->ToggleSkirt();
+                dxutil::DebugLog(L"[Terrain] 스커트 %s", chunked->IsSkirtEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('M'))
+            {
+                chunked->ToggleMorph();
+                dxutil::DebugLog(L"[Terrain] 지오모핑 %s", chunked->IsMorphEnabled() ? L"켬" : L"끔");
+            }
             if (input.GetKeyDown('N'))
                 chunked->Regenerate(static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 7u));
+
+            continue;   // 청크 지형은 여기까지
         }
 
+        // ---- 단일 메시 지형 (스텝 1~4) ----
+        TerrainRenderer* terrain = object->GetComponent<TerrainRenderer>();
+        if (!terrain) continue;
+
+        // Tab 하나로 표시 모드를 순환한다. (예전의 G / T / B 를 합쳤다)
         if (input.GetKeyDown(VK_TAB))
         {
             terrain->CycleDisplayMode();

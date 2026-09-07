@@ -12,7 +12,8 @@ cbuffer TerrainConstants : register(b0)
     float4   gParams;        // x,y : 격자 칸 수   z : 와이어프레임   w : 높이 사용(0/1)
     float4   gHeightRange;   // x : 최저 높이   y : 최고 높이
     float4   gLightDir;      // xyz : 방향광이 나아가는 방향   w : 환경광 세기
-    float4   gSplat;         // x : 타일 반복 횟수   y : 스플래팅 사용   z : 디버그 단색
+    float4   gSplat;         // x : 타일 반복   y : 스플래팅   z : 디버그 단색   w : 모프 계수
+    float4   gLodSelect;     // 현재 LOD 성분만 1
 };
 
 // 스플래팅 레이어 (S44)

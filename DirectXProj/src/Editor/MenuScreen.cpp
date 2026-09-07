@@ -17,19 +17,34 @@ void MenuScreen::BuildLayout(int viewportWidth, int viewportHeight)
         return;
 
     const int count = static_cast<int>(m_entries.size());
-    const int listHeight = count * kEntryHeight + (count - 1) * kEntryGap;
+
+    // 항목이 늘어나 화면을 넘칠 것 같으면 줄 높이를 줄여 맞춘다.
+    const int available = viewportHeight - kMargin * 2 - kHeaderHeight - kPadding * 2;
+    int entryHeight = kEntryHeight;
+    if (count > 0)
+    {
+        const int needed = count * kEntryHeight + (count - 1) * kEntryGap;
+        if (needed > available)
+        {
+            entryHeight = (available - (count - 1) * kEntryGap) / count;
+            entryHeight = (std::max)(kMinEntryHeight, entryHeight);
+        }
+    }
+
+    const int listHeight = count * entryHeight + (count - 1) * kEntryGap;
     const int panelHeight = kHeaderHeight + listHeight + kPadding * 2;
 
     const int left = (viewportWidth - kPanelWidth) / 2;
-    const int top = (viewportHeight - panelHeight) / 2;
+    const int top = (std::max)(kMargin, (viewportHeight - panelHeight) / 2);
 
     m_panelRect = { left, top, left + kPanelWidth, top + panelHeight };
+    m_entryHeight = entryHeight;
 
     int y = top + kHeaderHeight + kPadding;
     for (int i = 0; i < count; ++i)
     {
-        m_rects.push_back({ left + kPadding, y, left + kPanelWidth - kPadding, y + kEntryHeight });
-        y += kEntryHeight + kEntryGap;
+        m_rects.push_back({ left + kPadding, y, left + kPanelWidth - kPadding, y + entryHeight });
+        y += entryHeight + kEntryGap;
     }
 }
 
@@ -105,12 +120,16 @@ void MenuScreen::Draw(HDC hdc, int viewportWidth, int viewportHeight)
         editor::FillSolid(hdc, rect, focused ? editor::kSelectedRow : editor::kFieldBackground);
         editor::FrameSolid(hdc, rect, editor::kFieldBorder);
 
+        // 줄이 좁아지면 제목과 설명 간격도 줄인다.
+        const int titleY = rect.top + (m_entryHeight >= 56 ? 12 : 5);
+        const int descY = titleY + (m_entryHeight >= 56 ? 22 : 18);
+
         ::SelectObject(hdc, editor::GetUIFontBold());
-        editor::DrawLabel(hdc, rect.left + 16, rect.top + 12, m_entries[i].title,
+        editor::DrawLabel(hdc, rect.left + 16, titleY, m_entries[i].title,
                           focused ? editor::kTextSelected : editor::kTextNormal);
 
         ::SelectObject(hdc, editor::GetUIFont());
-        editor::DrawLabel(hdc, rect.left + 16, rect.top + 34, m_entries[i].description,
+        editor::DrawLabel(hdc, rect.left + 16, descY, m_entries[i].description,
                           focused ? editor::kTextSelected : editor::kTextDim);
     }
 

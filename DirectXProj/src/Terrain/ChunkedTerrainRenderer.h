@@ -56,6 +56,15 @@ public:
     bool IsCullingEnabled() const { return m_cullingEnabled; }
     void ToggleCulling() { m_cullingEnabled = !m_cullingEnabled; }
 
+    // ---- 스텝 6-2 : 스커트 + 지오모핑 ----
+    void SetSkirtEnabled(bool enabled);
+    bool IsSkirtEnabled() const { return m_skirtEnabled; }
+    void ToggleSkirt() { SetSkirtEnabled(!m_skirtEnabled); }
+
+    void SetMorphEnabled(bool enabled) { m_morphEnabled = enabled; }
+    bool IsMorphEnabled() const { return m_morphEnabled; }
+    void ToggleMorph() { m_morphEnabled = !m_morphEnabled; }
+
     void SetLodEnabled(bool enabled) { m_lodEnabled = enabled; }
     bool IsLodEnabled() const { return m_lodEnabled; }
     void ToggleLod() { m_lodEnabled = !m_lodEnabled; }
@@ -68,6 +77,7 @@ private:
     bool RebuildChunks();
     void LoadSplatLayers();
     int  SelectLod(const DirectX::XMFLOAT3& chunkCenter, const DirectX::XMFLOAT3& eye) const;
+    float SelectMorph(const DirectX::XMFLOAT3& chunkCenter, const DirectX::XMFLOAT3& eye) const;
     DirectX::XMFLOAT4 GetDebugColor(int chunkIndex, int lod) const;
 
     Graphics* m_graphics = nullptr;
@@ -79,6 +89,7 @@ private:
     // 이번 프레임에 보이는 청크와 각자의 LOD
     std::vector<int> m_visibleChunks;
     std::vector<int> m_chunkLod;
+    std::vector<float> m_chunkMorph;
     terrain::TerrainQuadTree::Stats m_stats;
     int m_drawnTriangles = 0;
 
@@ -90,6 +101,8 @@ private:
     bool m_dirty = true;
     bool m_cullingEnabled = true;
     bool m_lodEnabled = false;
+    bool m_skirtEnabled = true;
+    bool m_morphEnabled = true;
 
     DisplayMode m_displayMode = DisplayMode::ChunkColor;
 
