@@ -5,7 +5,7 @@ using namespace DirectX;
 
 namespace terrain
 {
-    bool BuildGrid(const GridDesc& desc, MeshData& out)
+    bool BuildGrid(const GridDesc& desc, MeshData& out, const HeightField* height)
     {
         if (desc.cellsX <= 0 || desc.cellsZ <= 0 || desc.cellSize <= 0.0f)
         {
@@ -39,9 +39,21 @@ namespace terrain
                 const float x = -halfWidth + c * desc.cellSize;
 
                 TerrainVertex vertex;
-                vertex.position = XMFLOAT3(x, 0.0f, z);      // 평면이므로 높이는 0
-                vertex.normal   = XMFLOAT3(0.0f, 1.0f, 0.0f); // 평면의 법선은 위쪽
-                vertex.uv       = XMFLOAT2(c * du, r * dv);
+
+                if (height)
+                {
+                    // 스텝 2 : 높이 함수에서 y 를 받고, 기울기로 법선을 만든다.
+                    vertex.position = XMFLOAT3(x, height->Sample(x, z), z);
+                    vertex.normal   = height->SampleNormal(x, z, desc.cellSize);
+                }
+                else
+                {
+                    // 스텝 1 : 평면이므로 높이 0, 법선은 위쪽
+                    vertex.position = XMFLOAT3(x, 0.0f, z);
+                    vertex.normal   = XMFLOAT3(0.0f, 1.0f, 0.0f);
+                }
+
+                vertex.uv = XMFLOAT2(c * du, r * dv);
 
                 out.vertices.push_back(vertex);
             }
@@ -76,9 +88,29 @@ namespace terrain
             }
         }
 
+        const HeightRange range = GetHeightRange(out);
+        dxutil::DebugLog(L"[Terrain] 높이 범위 : %.2f ~ %.2f", range.minY, range.maxY);
+
         dxutil::DebugLog(L"[Terrain] 격자 생성 : %d x %d 칸, 정점 %zu개, 삼각형 %zu개",
                          desc.cellsX, desc.cellsZ,
                          out.vertices.size(), out.indices.size() / 3);
         return true;
+    }
+
+    HeightRange GetHeightRange(const MeshData& data)
+    {
+        HeightRange range;
+        if (data.vertices.empty())
+            return range;
+
+        range.minY = data.vertices.front().position.y;
+        range.maxY = range.minY;
+
+        for (const TerrainVertex& vertex : data.vertices)
+        {
+            range.minY = (std::min)(range.minY, vertex.position.y);
+            range.maxY = (std::max)(range.maxY, vertex.position.y);
+        }
+        return range;
     }
 }

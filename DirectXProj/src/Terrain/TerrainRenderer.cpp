@@ -26,6 +26,26 @@ void TerrainRenderer::SetGrid(int cellsX, int cellsZ, float cellSize)
     m_dirty = true;
 }
 
+void TerrainRenderer::SetHeightEnabled(bool enabled)
+{
+    m_heightEnabled = enabled;
+    m_dirty = true;
+}
+
+void TerrainRenderer::SetHeightParams(const terrain::HeightParams& params)
+{
+    m_height.SetParams(params);
+    m_dirty = true;
+}
+
+void TerrainRenderer::Regenerate(unsigned seed)
+{
+    terrain::HeightParams params = m_height.GetParams();
+    params.seed = seed;
+    m_height.SetParams(params);
+    m_dirty = true;
+}
+
 bool TerrainRenderer::RebuildMesh()
 {
     m_dirty = false;
@@ -34,8 +54,10 @@ bool TerrainRenderer::RebuildMesh()
         return false;
 
     terrain::MeshData data;
-    if (!terrain::BuildGrid(m_desc, data))
+    if (!terrain::BuildGrid(m_desc, data, m_heightEnabled ? &m_height : nullptr))
         return false;
+
+    m_heightRange = terrain::GetHeightRange(data);
 
     return m_mesh.Create(m_graphics->GetDevice(),
                          data.vertices.data(),
@@ -61,17 +83,19 @@ void TerrainRenderer::Render()
     if (!transform)
         return;
 
-    // 격자선을 픽셀 셰이더에서 그리기 위해 칸 수를 넘긴다.
-    const XMFLOAT4 params(static_cast<float>(m_desc.cellsX) * m_desc.uvTiling,
-                          static_cast<float>(m_desc.cellsZ) * m_desc.uvTiling,
-                          m_wireframe ? 1.0f : 0.0f,
-                          0.0f);
+    Graphics::MeshDrawParams draw;
 
-    m_graphics->DrawMesh(m_mesh,
-                         transform->GetWorldMatrix(),
-                         m_wireframe ? m_wireColor : m_color,
-                         params,
-                         m_wireframe);
+    // 격자선을 픽셀 셰이더에서 그리기 위해 칸 수를 넘긴다.
+    draw.params = XMFLOAT4(static_cast<float>(m_desc.cellsX) * m_desc.uvTiling,
+                           static_cast<float>(m_desc.cellsZ) * m_desc.uvTiling,
+                           m_wireframe ? 1.0f : 0.0f,
+                           m_heightEnabled ? 1.0f : 0.0f);
+
+    draw.color = m_wireframe ? m_wireColor : m_color;
+    draw.heightRange = XMFLOAT4(m_heightRange.minY, m_heightRange.maxY, 0.0f, 0.0f);
+    draw.wireframe = m_wireframe;
+
+    m_graphics->DrawMesh(m_mesh, transform->GetWorldMatrix(), draw);
 }
 
 void TerrainRenderer::ToJson(json::Value& out) const
@@ -83,6 +107,15 @@ void TerrainRenderer::ToJson(json::Value& out) const
     out["cellSize"]  = json::Value(m_desc.cellSize);
     out["uvTiling"]  = json::Value(m_desc.uvTiling);
     out["wireframe"] = json::Value(m_wireframe);
+    out["heightEnabled"] = json::Value(m_heightEnabled);
+
+    const terrain::HeightParams& height = m_height.GetParams();
+    out["seed"]        = json::Value(static_cast<uint64_t>(height.seed));
+    out["frequency"]   = json::Value(height.frequency);
+    out["amplitude"]   = json::Value(height.amplitude);
+    out["octaves"]     = json::Value(height.octaves);
+    out["persistence"] = json::Value(height.persistence);
+    out["lacunarity"]  = json::Value(height.lacunarity);
 
     json::Value color = json::Value::MakeArray();
     color.Push(json::Value(m_color.x));
@@ -100,7 +133,17 @@ void TerrainRenderer::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("cellsZ"))    m_desc.cellsZ   = value->AsInt(m_desc.cellsZ);
     if (const json::Value* value = in.Find("cellSize"))  m_desc.cellSize = value->AsFloat(m_desc.cellSize);
     if (const json::Value* value = in.Find("uvTiling"))  m_desc.uvTiling = value->AsFloat(m_desc.uvTiling);
-    if (const json::Value* value = in.Find("wireframe")) m_wireframe     = value->AsBool(m_wireframe);
+    if (const json::Value* value = in.Find("wireframe"))     m_wireframe     = value->AsBool(m_wireframe);
+    if (const json::Value* value = in.Find("heightEnabled")) m_heightEnabled = value->AsBool(m_heightEnabled);
+
+    terrain::HeightParams height = m_height.GetParams();
+    if (const json::Value* value = in.Find("seed"))        height.seed        = static_cast<unsigned>(value->AsUInt64(height.seed));
+    if (const json::Value* value = in.Find("frequency"))   height.frequency   = value->AsFloat(height.frequency);
+    if (const json::Value* value = in.Find("amplitude"))   height.amplitude   = value->AsFloat(height.amplitude);
+    if (const json::Value* value = in.Find("octaves"))     height.octaves     = value->AsInt(height.octaves);
+    if (const json::Value* value = in.Find("persistence")) height.persistence = value->AsFloat(height.persistence);
+    if (const json::Value* value = in.Find("lacunarity"))  height.lacunarity  = value->AsFloat(height.lacunarity);
+    m_height.SetParams(height);
 
     if (const json::Value* color = in.Find("color"))
     {

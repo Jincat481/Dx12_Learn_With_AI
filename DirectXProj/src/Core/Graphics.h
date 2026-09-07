@@ -46,12 +46,18 @@ public:
     //  Camera 컴포넌트가 Update 에서 넣어 준 행렬을 Render 단계에서 쓴다.
     void SetCamera3D(DirectX::FXMMATRIX view, DirectX::CXMMATRIX projection, const DirectX::XMFLOAT3& eyePosition);
 
+    // 3D 메시를 그릴 때 셰이더로 넘길 값들
+    struct MeshDrawParams
+    {
+        DirectX::XMFLOAT4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        DirectX::XMFLOAT4 params{ 0.0f, 0.0f, 0.0f, 0.0f };        // x,y 격자 칸 수 / z 와이어프레임 / w 높이 사용
+        DirectX::XMFLOAT4 heightRange{ 0.0f, 1.0f, 0.0f, 0.0f };   // 색상 램프용 최저/최고 높이
+        DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.28f };  // xyz 방향 / w 환경광
+        bool wireframe = false;
+    };
+
     // 3D 메시 하나를 그린다. 깊이 테스트가 켜진 상태로 그려진다.
-    void DrawMesh(const Mesh& mesh,
-                  DirectX::FXMMATRIX world,
-                  const DirectX::XMFLOAT4& color,
-                  const DirectX::XMFLOAT4& params,
-                  bool wireframe);
+    void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const MeshDrawParams& drawParams);
 
     float GetAspectRatio() const;
     DirectX::XMFLOAT3 GetEyePosition3D() const { return m_eyePosition; }

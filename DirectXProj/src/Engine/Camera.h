@@ -45,6 +45,14 @@ public:
 private:
     void ApplyToGraphics();
 
+    // 궤도 파라미터로 계산한 눈 위치·회전을 소유 GameObject 의 Transform 에 기록한다.
+    // 그래야 Inspector 에 실제 카메라 위치가 보인다.
+    void WriteToTransform();
+
+    // Inspector 에서 위치를 직접 고쳤는지 확인하고, 고쳤으면
+    // 그 위치에 맞게 거리/각도를 거꾸로 계산한다.
+    bool SyncFromTransformIfEditedExternally();
+
     Graphics* m_graphics = nullptr;
 
     DirectX::XMFLOAT3 m_target{ 0.0f, 0.0f, 0.0f };
@@ -59,6 +67,11 @@ private:
     float m_orbitSpeed = 0.35f;    // 픽셀당 도
     float m_zoomSpeed = 0.12f;     // 휠 눈금당 비율
     float m_moveSpeed = 30.0f;     // 초당 월드 단위
+
+    // Transform 과의 동기화용. 우리가 마지막으로 써 넣은 값을 기억해 두었다가
+    // 다음 프레임에 값이 달라져 있으면 외부(Inspector)가 고친 것으로 본다.
+    DirectX::XMFLOAT3 m_lastWrittenPosition{ 0.0f, 0.0f, 0.0f };
+    bool m_hasWrittenTransform = false;
 
     // 궤도 회전용
     bool m_orbiting = false;

@@ -3,6 +3,7 @@
 #include "Engine/Component.h"
 #include "Graphics/Mesh.h"
 #include "Terrain/TerrainMeshBuilder.h"
+#include "Terrain/HeightField.h"
 
 class Graphics;
 
@@ -36,6 +37,15 @@ public:
     void SetWireframe(bool wireframe) { m_wireframe = wireframe; }
     bool IsWireframe() const { return m_wireframe; }
 
+    // ---- 스텝 2 : 하이트맵 ----
+    void SetHeightEnabled(bool enabled);
+    bool IsHeightEnabled() const { return m_heightEnabled; }
+
+    void SetHeightParams(const terrain::HeightParams& params);
+    const terrain::HeightParams& GetHeightParams() const { return m_height.GetParams(); }
+
+    void Regenerate(unsigned seed);   // 새 seed 로 다시 만든다
+
     UINT GetVertexCount()   const { return m_mesh.GetVertexCount(); }
     UINT GetTriangleCount() const { return m_mesh.GetIndexCount() / 3; }
 
@@ -46,6 +56,9 @@ private:
     Mesh      m_mesh;
 
     terrain::GridDesc m_desc;
+    terrain::HeightField m_height;
+    terrain::HeightRange m_heightRange;
+    bool m_heightEnabled = true;
     bool m_dirty = true;
     bool m_wireframe = false;
 

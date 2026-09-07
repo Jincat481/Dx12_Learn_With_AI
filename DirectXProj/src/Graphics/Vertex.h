@@ -45,10 +45,13 @@ struct TerrainVertex
 
 // 터레인 상수 버퍼 (b0)
 //  float4x4(64) + float4x4(64) + float4(16) + float4(16) = 160 bytes (16의 배수)
+//  64 + 64 + 16 + 16 + 16 + 16 = 192 bytes (16의 배수)
 struct TerrainConstantBuffer
 {
     DirectX::XMFLOAT4X4 wvp;
     DirectX::XMFLOAT4X4 world;
-    DirectX::XMFLOAT4   color;
-    DirectX::XMFLOAT4   params;   // x,y : 격자 칸 수  z : 와이어프레임(0/1)  w : 예약
+    DirectX::XMFLOAT4   color;         // 평면 모드에서 쓰는 기본 색
+    DirectX::XMFLOAT4   params;        // x,y : 격자 칸 수  z : 와이어프레임  w : 높이 사용(0/1)
+    DirectX::XMFLOAT4   heightRange;   // x : 최저 높이  y : 최고 높이
+    DirectX::XMFLOAT4   lightDirection;// xyz : 방향광이 나아가는 방향  w : 환경광 세기
 };

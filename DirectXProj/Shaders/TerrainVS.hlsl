@@ -8,8 +8,10 @@ cbuffer TerrainConstants : register(b0)
 {
     float4x4 gWVP;
     float4x4 gWorld;
-    float4   gColor;
-    float4   gParams;   // x,y : 격자 칸 수   z : 와이어프레임(0/1)
+    float4   gColor;         // 평면 모드의 기본 색
+    float4   gParams;        // x,y : 격자 칸 수   z : 와이어프레임   w : 높이 사용(0/1)
+    float4   gHeightRange;   // x : 최저 높이   y : 최고 높이
+    float4   gLightDir;      // xyz : 방향광이 나아가는 방향   w : 환경광 세기
 };
 
 struct VSInput

@@ -1,6 +1,7 @@
 #pragma once
 #include "Core/stdafx.h"
 #include "Graphics/Vertex.h"
+#include "Terrain/HeightField.h"
 
 // =============================================================
 // TerrainMeshBuilder (S30)
@@ -38,5 +39,10 @@ namespace terrain
     };
 
     // 격자 메시를 만든다. 원점이 격자의 중심이 되도록 배치한다.
-    bool BuildGrid(const GridDesc& desc, MeshData& out);
+    //  height 가 nullptr 이면 평면(스텝 1), 있으면 높이와 법선을 채운다(스텝 2).
+    bool BuildGrid(const GridDesc& desc, MeshData& out, const HeightField* height = nullptr);
+
+    // 격자에서 실제로 나온 최소/최대 높이. 셰이더의 색상 램프에 쓴다.
+    struct HeightRange { float minY = 0.0f; float maxY = 0.0f; };
+    HeightRange GetHeightRange(const MeshData& data);
 }

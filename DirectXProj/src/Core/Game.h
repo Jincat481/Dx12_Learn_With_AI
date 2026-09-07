@@ -2,6 +2,7 @@
 #include "Core/stdafx.h"
 #include "Editor/HierarchyPanel.h"
 #include "Editor/InspectorPanel.h"
+#include "Editor/MenuScreen.h"
 
 class Window;
 class Graphics;
@@ -29,6 +30,12 @@ private:
     void RegisterComponentTypes();     // ComponentFactory 등록 (과제 5)
     void BuildTerrainScene();          // 터레인 쇼케이스 씬
     void BuildSpriteDemoScene();       // 2D 스프라이트 데모 씬
+
+    void SetupMenu();
+    void EnterShowcase(int index);     // 메뉴에서 고른 항목으로 들어간다
+    void ReturnToMenu();
+    void UpdateMenuFrame();            // 메뉴 상태의 한 프레임
+    void UpdateShowcaseFrame();        // 쇼케이스 상태의 한 프레임
     void UpdatePickingAndDrag();       // 마우스 피킹 / 선택 하이라이트 / 드래그 이동
     void UpdateEditorUI();             // Hierarchy / Inspector 입력 처리
     void DrawEditorUI();               // 두 패널을 한 번의 GDI 오버레이로 그린다
@@ -42,6 +49,12 @@ private:
 
     bool m_comInitialized = false;
     bool m_running = false;
+
+    // 앱 상태 : 메뉴에서 기능을 고르고 들어갔다가 ESC 로 돌아온다.
+    enum class AppState { Menu, Showcase };
+    AppState   m_state = AppState::Menu;
+    MenuScreen m_menu;
+    int        m_currentShowcase = -1;
 
     std::wstring m_savePath;
     float m_titleTimer = 0.0f;

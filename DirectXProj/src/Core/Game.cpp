@@ -15,6 +15,7 @@
 #include "Engine/Camera.h"
 
 #include "Terrain/TerrainRenderer.h"
+#include "Editor/MenuScreen.h"
 
 #include "Graphics/ShaderManager.h"
 #include "Graphics/TextureManager.h"
@@ -69,16 +70,17 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
 
     // 5) 씬 구성
     m_savePath = Paths::ResolveForWrite(L"Saves/scene.json");
-    BuildTerrainScene();
 
-    // 6) GPU 리소스가 필요한 Component 초기화 → 이후 첫 Update 에서 Start
-    SceneManager::Get().Initialize(m_graphics.get());
+    // 5) 메뉴로 시작한다. 씬은 항목을 고른 뒤에 만든다.
+    SetupMenu();
+    m_state = AppState::Menu;
 
     m_running = true;
 
     dxutil::DebugLog(L"[Game] 초기화 완료");
     dxutil::DebugLog(L"  [터레인] 가운데버튼 드래그 궤도회전 | 휠 줌 | WASD 이동 | Q,E 높이 | F 리셋 | G 와이어프레임");
-    dxutil::DebugLog(L"  [씬 전환] F3 : 터레인 쇼케이스 <-> 스프라이트 데모");
+    dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 켜기/끄기 | N 새 지형");
+    dxutil::DebugLog(L"  [공통] ESC 메뉴로 | H Hierarchy | I Inspector");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
     dxutil::DebugLog(L"  H: Hierarchy 켜기/끄기 | I: Inspector 켜기/끄기");
     dxutil::DebugLog(L"  Hierarchy 에서 줄을 끌어다 다른 줄 위에 놓으면 그 자식이 되고, 아래 빈 곳에 놓으면 루트로 분리된다");
@@ -154,37 +156,121 @@ int Game::Run()
     if (!m_running)
         return -1;
 
-    TimeManager& time = TimeManager::Get();
-    InputManager& input = InputManager::Get();
-    SceneManager& sceneManager = SceneManager::Get();
-
-    // ---- 게임 루프 ----
     while (m_window->ProcessMessages())        // 1. 메시지 처리
     {
-        time.Update();
-        input.Update();                        // 2. 입력 갱신
+        TimeManager::Get().Update();
+        InputManager::Get().Update();          // 2. 입력 갱신
 
-        UpdateEditorUI();                      //    Hierarchy / Inspector (마우스·문자 입력)
-        UpdatePickingAndDrag();                //    피킹 / 하이라이트 / 드래그 이동
-
-#if HOT_RELOAD_ENABLED
-        // 3. 셰이더 파일 변경 감시 (Debug 전용)
-        ShaderManager::Get().Update(time.GetDeltaTime());
-#endif
-
-        sceneManager.Update();                 // 4. 씬 Update
-
-        m_graphics->BeginFrame();              // 5. 화면 Clear
-        sceneManager.Render();                 // 6. 씬 Render
-        DrawEditorUI();                        //    에디터 패널 오버레이
-        m_graphics->EndFrame();                // 7. Present
-
-        sceneManager.ProcessPendingChanges();  // 8. 추가/삭제 일괄 반영
-        HandleFrameEndCommands();              // 9. 저장/로드 등 안전한 시점의 작업
-        UpdateWindowTitle();
+        if (m_state == AppState::Menu)
+            UpdateMenuFrame();
+        else
+            UpdateShowcaseFrame();
     }
 
     return 0;
+}
+
+// -------------------------------------------------------------
+// 메뉴 상태 : 씬을 돌리지 않고 메뉴만 그린다.
+// -------------------------------------------------------------
+void Game::SetupMenu()
+{
+    m_menu.SetEntries({
+        { L"터레인 쇼케이스",   L"절차적 하이트맵 지형 · 궤도 카메라 · 와이어프레임 (스텝 1~2)" },
+        { L"2D 스프라이트 데모", L"계층 Transform · 피킹 · 드래그 · Hierarchy / Inspector" },
+        { L"종료",             L"프로그램을 끝낸다" },
+    });
+}
+
+void Game::UpdateMenuFrame()
+{
+    InputManager& input = InputManager::Get();
+
+    const int choice = m_menu.Update(input, m_graphics->GetWidth(), m_graphics->GetHeight());
+
+    m_graphics->BeginFrame();
+    if (HDC hdc = m_graphics->BeginOverlay())
+    {
+        m_menu.Draw(hdc, m_graphics->GetWidth(), m_graphics->GetHeight());
+        m_graphics->EndOverlay();
+    }
+    m_graphics->EndFrame();
+
+    if (input.GetKeyDown(VK_ESCAPE))
+    {
+        ::PostQuitMessage(0);
+        return;
+    }
+
+    if (choice != MenuScreen::kNoSelection)
+        EnterShowcase(choice);
+
+    UpdateWindowTitle();
+}
+
+void Game::EnterShowcase(int index)
+{
+    // 마지막 항목은 종료
+    if (index == 2)
+    {
+        ::PostQuitMessage(0);
+        return;
+    }
+
+    m_selectedId = 0;
+    m_dragging = false;
+    m_currentShowcase = index;
+
+    if (index == 0)
+        BuildTerrainScene();
+    else
+        BuildSpriteDemoScene();
+
+    SceneManager::Get().Initialize(m_graphics.get());
+    m_state = AppState::Showcase;
+
+    dxutil::DebugLog(L"[Game] 쇼케이스 진입 : %d (ESC 로 메뉴 복귀)", index);
+}
+
+void Game::ReturnToMenu()
+{
+    m_selectedId = 0;
+    m_dragging = false;
+    m_currentShowcase = -1;
+
+    SceneManager::Get().Shutdown();
+    m_state = AppState::Menu;
+
+    dxutil::DebugLog(L"[Game] 메뉴로 복귀");
+}
+
+// -------------------------------------------------------------
+// 쇼케이스 상태 : 기존 게임 루프 그대로.
+//   입력 갱신 → 에디터 UI → 피킹 → 씬 Update
+//   → BeginFrame → 씬 Render → 오버레이 → EndFrame → 프레임 끝 정리
+// -------------------------------------------------------------
+void Game::UpdateShowcaseFrame()
+{
+    TimeManager& time = TimeManager::Get();
+    SceneManager& sceneManager = SceneManager::Get();
+
+    UpdateEditorUI();                      // Hierarchy / Inspector
+    UpdatePickingAndDrag();                // 피킹 / 하이라이트 / 드래그
+
+#if HOT_RELOAD_ENABLED
+    ShaderManager::Get().Update(time.GetDeltaTime());
+#endif
+
+    sceneManager.Update();
+
+    m_graphics->BeginFrame();
+    sceneManager.Render();
+    DrawEditorUI();
+    m_graphics->EndFrame();
+
+    sceneManager.ProcessPendingChanges();
+    HandleFrameEndCommands();
+    UpdateWindowTitle();
 }
 
 GameObject* Game::GetSelectedObject() const
@@ -399,9 +485,12 @@ void Game::HandleFrameEndCommands()
     if (!scene)
         return;
 
-    // ESC : 종료 (인스펙터 편집 중이면 Esc 는 편집 취소로 이미 쓰였다)
+    // ESC : 메뉴로 복귀 (인스펙터 편집 중이면 Esc 는 편집 취소로 이미 쓰였다)
     if (input.GetKeyDown(VK_ESCAPE) && !m_inspector.IsEditing())
-        ::PostQuitMessage(0);
+    {
+        ReturnToMenu();
+        return;
+    }
 
     // F5 : 저장
     if (input.GetKeyDown(VK_F5))
@@ -419,32 +508,28 @@ void Game::HandleFrameEndCommands()
             dxutil::DebugLog(L"[Game] 불러오기 실패 (먼저 F5 로 저장한다)");
     }
 
-    // F3 : 씬 전환 (터레인 쇼케이스 <-> 스프라이트 데모)
-    //  Scene 을 통째로 갈아엎으므로 프레임이 끝난 지금이 안전한 시점이다.
-    if (input.GetKeyDown(VK_F3))
+    // 터레인 조작 (터레인 쇼케이스에서만 의미가 있다)
+    for (const auto& object : scene->GetGameObjects())
     {
-        m_selectedId = 0;
-        m_dragging = false;
-        m_terrainSceneActive = !m_terrainSceneActive;
+        if (!object) continue;
 
-        if (m_terrainSceneActive)
-            BuildTerrainScene();
-        else
-            BuildSpriteDemoScene();
+        TerrainRenderer* terrain = object->GetComponent<TerrainRenderer>();
+        if (!terrain) continue;
 
-        SceneManager::Get().Initialize(m_graphics.get());
-        dxutil::DebugLog(L"[Game] 씬 전환 : %s", m_terrainSceneActive ? L"TerrainShowcase" : L"SpriteDemo");
-        return;
-    }
+        if (input.GetKeyDown('G'))          // 와이어프레임
+            terrain->SetWireframe(!terrain->IsWireframe());
 
-    // G : 터레인 와이어프레임 토글
-    if (input.GetKeyDown('G'))
-    {
-        for (const auto& object : scene->GetGameObjects())
+        if (input.GetKeyDown('T'))          // 평면 <-> 하이트맵
         {
-            if (!object) continue;
-            if (TerrainRenderer* terrain = object->GetComponent<TerrainRenderer>())
-                terrain->SetWireframe(!terrain->IsWireframe());
+            terrain->SetHeightEnabled(!terrain->IsHeightEnabled());
+            dxutil::DebugLog(L"[Terrain] 높이 %s", terrain->IsHeightEnabled() ? L"켬" : L"끔");
+        }
+
+        if (input.GetKeyDown('N'))          // 새 지형 생성
+        {
+            const unsigned seed = static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 12345u);
+            terrain->Regenerate(seed);
+            dxutil::DebugLog(L"[Terrain] 새 seed 로 재생성 : %u", seed);
         }
     }
 

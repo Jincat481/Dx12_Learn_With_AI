@@ -120,11 +120,13 @@
     <ClCompile Include="src\Game\PlayerController.cpp" />
     <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\Graphics\Mesh.cpp" />
+    <ClCompile Include="src\Terrain\HeightField.cpp" />
     <ClCompile Include="src\Terrain\TerrainMeshBuilder.cpp" />
     <ClCompile Include="src\Terrain\TerrainRenderer.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
+    <ClCompile Include="src\Editor\MenuScreen.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -155,11 +157,13 @@
     <ClInclude Include="src\Game\PlayerController.h" />
     <ClInclude Include="src\Engine\Camera.h" />
     <ClInclude Include="src\Graphics\Mesh.h" />
+    <ClInclude Include="src\Terrain\HeightField.h" />
     <ClInclude Include="src\Terrain\TerrainMeshBuilder.h" />
     <ClInclude Include="src\Terrain\TerrainRenderer.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />
+    <ClInclude Include="src\Editor\MenuScreen.h" />
   </ItemGroup>
 
   <!-- HLSL 은 런타임에 D3DCompileFromFile 로 컴파일하므로 빌드에서 제외한다 -->

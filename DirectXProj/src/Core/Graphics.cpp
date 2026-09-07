@@ -489,11 +489,7 @@ void Graphics::SetCamera3D(FXMMATRIX view, CXMMATRIX projection, const XMFLOAT3&
     m_eyePosition = eyePosition;
 }
 
-void Graphics::DrawMesh(const Mesh& mesh,
-                        FXMMATRIX world,
-                        const XMFLOAT4& color,
-                        const XMFLOAT4& params,
-                        bool wireframe)
+void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams& drawParams)
 {
     if (!m_context || !mesh.IsValid() || !m_terrainShader || !m_terrainShader->IsValid())
         return;
@@ -509,14 +505,22 @@ void Graphics::DrawMesh(const Mesh& mesh,
         TerrainConstantBuffer* cb = static_cast<TerrainConstantBuffer*>(mapped.pData);
         XMStoreFloat4x4(&cb->wvp, XMMatrixTranspose(wvp));
         XMStoreFloat4x4(&cb->world, XMMatrixTranspose(world));
-        cb->color = color;
-        cb->params = params;
+        cb->color = drawParams.color;
+        cb->params = drawParams.params;
+        cb->heightRange = drawParams.heightRange;
+
+        // 방향광은 셰이더에서 정규화해 쓰지만, 여기서 미리 맞춰 두면 안전하다.
+        XMVECTOR light = XMLoadFloat4(&drawParams.lightDirection);
+        XMVECTOR dir = XMVector3Normalize(XMVectorSetW(light, 0.0f));
+        XMStoreFloat4(&cb->lightDirection, dir);
+        cb->lightDirection.w = drawParams.lightDirection.w;
+
         m_context->Unmap(m_meshConstantBuffer.Get(), 0);
     }
 
     // 2) 상태 설정
     m_context->OMSetDepthStencilState(m_depthEnabledState.Get(), 0);
-    m_context->RSSetState(wireframe ? m_rasterWireframeState.Get() : m_rasterSolidState.Get());
+    m_context->RSSetState(drawParams.wireframe ? m_rasterWireframeState.Get() : m_rasterSolidState.Get());
 
     const UINT stride = mesh.GetStride();
     const UINT offset = 0;

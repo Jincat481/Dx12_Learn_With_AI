@@ -16,7 +16,15 @@ MSBuild.exe DirectXProj/DirectXProj.vcxproj /p:Configuration=Debug /p:Platform=x
 
 ## 조작
 
-### 터레인 쇼케이스 (기본 씬)
+프로그램을 켜면 **메뉴**가 먼저 뜬다. 보고 싶은 기능을 고르면 그 씬으로 들어가고, `ESC` 로 메뉴에 돌아온다.
+
+| 입력 | 동작 |
+| --- | --- |
+| ↑ ↓ / 마우스 | 항목 이동 |
+| Enter / 클릭 | 선택 |
+| ESC (메뉴에서) | 종료 |
+
+### 터레인 쇼케이스
 
 | 입력 | 동작 |
 | --- | --- |
@@ -26,7 +34,9 @@ MSBuild.exe DirectXProj/DirectXProj.vcxproj /p:Configuration=Debug /p:Platform=x
 | Q / E | 타깃 높이 |
 | F | 카메라 원점으로 리셋 |
 | G | 와이어프레임 토글 |
-| F3 | 씬 전환 (터레인 쇼케이스 ↔ 스프라이트 데모) |
+| T | 평면 ↔ 하이트맵 토글 |
+| N | 새 seed 로 지형 재생성 |
+| ESC | 메뉴로 복귀 |
 
 ### 스프라이트 데모 씬
 
@@ -60,10 +70,10 @@ DirectXProj/
    ├─ Engine/    Component, GameObject, Transform, SpriteRenderer, Camera,
    │             Scene, SceneManager, ComponentFactory, Picker
    ├─ Graphics/  Vertex, Mesh, Texture, TextureManager, Shader, ShaderManager
-   ├─ Terrain/   TerrainMeshBuilder, TerrainRenderer
+   ├─ Terrain/   HeightField, TerrainMeshBuilder, TerrainRenderer
    ├─ Input/     InputManager
    ├─ Utils/     Json, StringUtil, IdGenerator, Paths
-   ├─ Editor/    EditorStyle, HierarchyPanel, InspectorPanel
+   ├─ Editor/    EditorStyle, MenuScreen, HierarchyPanel, InspectorPanel
    └─ Game/      PlayerController                (데모용 샘플 컴포넌트)
 ```
 
@@ -85,7 +95,7 @@ DirectXProj/
 | 스텝 | 내용 | 상태 |
 | --- | --- | --- |
 | 1 | 평면 그리드 메시 + 원근 카메라 + 깊이 버퍼 | **완료** |
-| 2 | 하이트맵으로 높이 주기, 법선 계산 | 예정 |
+| 2 | 하이트맵으로 높이 주기, 법선 계산, 높이 색상 램프 | **완료** |
 | 3 | 텍스처 스플래팅(레이어 블렌딩) | 예정 |
 | 4 | 조명 (Directional + 그림자) | 예정 |
 | 5 | 청크 분할과 LOD | 예정 |
@@ -107,6 +117,16 @@ DirectXProj/
 | **S34** | UV 매핑과 타일링 — 격자 전체를 0~1 로 정규화, `uvTiling` 으로 반복 | 다음 스텝의 텍스처 스플래팅이 이 UV 위에 올라간다 | `Terrain/TerrainMeshBuilder.cpp` |
 | **S35** | 화면 공간 미분 — `frac`, `fwidth`, `saturate` 로 굵기가 일정한 격자선 그리기 | 텍스처 없이 픽셀 셰이더만으로 격자를 그린다. 거리와 무관하게 선 굵기가 유지되고 계단 현상도 줄어든다 | `Shaders/TerrainPS.hlsl` |
 
+### 스텝 2 에서 알아야 할 키워드
+
+| 번호 | 키워드 | 왜 필요한가 | 코드 위치 |
+| --- | --- | --- | --- |
+| **S36** | 하이트맵 — 높이 함수 `h(x, z)`, 이미지 하이트맵 vs 절차적 생성, 해상도와 계단 현상 | 격자의 y 만 바꾸면 지형이 된다. 스텝 1 의 구조를 그대로 두고 값만 채운다 | `Terrain/HeightField.h` |
+| **S37** | 값 노이즈와 fBm — 격자점 해시, `smoothstep` 보간, octaves / frequency / **persistence**(진폭 감소) / **lacunarity**(주파수 증가) | 옥타브를 겹쳐야 큰 산맥 위에 작은 굴곡이 얹힌 자연스러운 모양이 나온다. 한 층만 쓰면 밋밋하다 | `Terrain/HeightField.cpp` |
+| **S38** | 법선 계산 — 중앙 차분으로 기울기 구하기, `normal = normalize(-dh/dx, 1, -dh/dz)`, 정점 법선 보간 | **법선이 없으면 조명이 안 된다.** 높이를 줘도 전부 같은 밝기라 지형이 평면처럼 보인다 | `HeightField::SampleNormal` |
+| **S39** | 램버트 확산 조명 — `N·L`, 방향광, 환경광(ambient), `saturate` | 지형의 굴곡은 밝기 차이로 보인다. 가장 단순하면서 효과가 큰 조명 모델 | `Shaders/TerrainPS.hlsl` |
+| **S40** | 높이 기반 색상 램프 — 높이 정규화, `smoothstep` 으로 구간 blend | 텍스처 없이 풀 → 바위 → 눈 으로 고도감을 준다. 스텝 3 의 스플래팅으로 가는 징검다리 | `HeightColor()` |
+
 ## 설계 메모
 
 - **입력** — Win32 메시지는 pending 큐에 쌓고 `InputManager::Update()` 에서 한 번에 반영한다. 그래서 "메시지 처리 → 입력 갱신" 순서에서도 Down/Up 이 정확히 한 프레임만 참이다.
@@ -122,6 +142,9 @@ DirectXProj/
 - **드래그는 계층을 건드리지 않는다** — 그냥 드래그하면 부모-자식 관계가 그대로 유지된다(에디터의 일반적인 동작). 자식으로 남아 있으므로 이후 부모가 회전·이동하면 함께 끌려가는데, 이는 계층 구조상 맞는 동작이다.
 - **계층 변경은 Hierarchy 패널에서만** — 씬 드래그는 이동 전용이고, 부모를 바꾸는 것은 Hierarchy에서 줄을 끌어다 놓을 때뿐이다. 되돌릴 수 없는 조작을 우연히 일으키지 않게 분리했다. 재부모화는 `SetParent(newParent, worldPositionStays: true)`라 화면에 보이는 위치·회전·크기가 그대로 유지된다.
 - **에디터 UI는 GDI 오버레이** — 백버퍼를 `DXGI_FORMAT_B8G8R8A8_UNORM` + `DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE`로 만들고 `IDXGISurface1::GetDC`로 DC를 빌려 씬 위에 직접 그린다. 폰트 텍스처나 텍스트 렌더링 파이프라인이 따로 필요 없고 한글 이름도 그대로 나온다. DC는 프레임당 한 번만 잡아 두 패널이 나눠 쓴다.
+- **메뉴와 쇼케이스는 별개 상태** — `Game` 이 `AppState::Menu` / `Showcase` 두 상태를 오간다. 메뉴 상태에서는 씬을 아예 돌리지 않고 오버레이만 그린다. 항목을 고를 때 씬을 만들고, ESC 로 나올 때 `SceneManager::Shutdown` 으로 정리한다.
+- **카메라는 Transform 을 소유한다** — 궤도 파라미터(타깃·거리·yaw·pitch)로 눈 위치를 계산한 뒤 **매 프레임 자기 GameObject 의 Transform 에 써 넣는다.** 그래서 Inspector 에 실제 카메라 위치가 보인다. 반대로 Inspector 에서 위치를 고치면, 마지막으로 써 넣은 값과 달라진 것을 감지해 거리·각도를 거꾸로 계산한다(양방향 동기화).
+- **높이와 법선은 같은 함수에서** — 정점의 y 는 `HeightField::Sample`, 법선은 같은 함수를 좌우/앞뒤로 한 칸씩 샘플링한 중앙 차분으로 구한다. 삼각형 면법선을 모아 평균 내는 방식보다 코드가 짧고 이음매가 매끄럽다.
 - **2D 와 3D 를 한 프레임에** — `Graphics` 가 직교(스프라이트)와 원근(터레인) 두 벌의 View/Projection 을 따로 들고 있다. 스프라이트는 깊이 테스트를 끄고 그린 순서대로, 메시는 깊이 테스트를 켜고 그린다. 덕분에 기존 2D 경로를 건드리지 않고 3D 를 얹었다.
 - **카메라는 컴포넌트** — `Camera` 가 Update 에서 View/Projection 을 계산해 `Graphics::SetCamera3D` 로 넘긴다. 모든 Update 가 끝난 뒤 Render 가 돌기 때문에 같은 프레임 안에서 순서가 보장된다.
 - **격자선은 텍스처가 아니라 픽셀 셰이더로** — UV 에 칸 수를 곱하고 `frac`/`fwidth` 로 셀 경계를 찾는다. 텍스처 로딩 없이 10칸마다 굵은 선까지 그릴 수 있고, 카메라가 멀어져도 선 굵기가 일정하다.
