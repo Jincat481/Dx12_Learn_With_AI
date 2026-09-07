@@ -3,6 +3,14 @@
 `ChatGTP_DirectXProj_학습_프롬프트_가이드.md` 하나만 보고 처음부터 다시 작성한 DirectX 11 / C++ 2D 게임 프레임워크다.
 가이드의 과제 1~6과 확장 과제(`.cso` 캐시 로드)까지 모두 구현되어 있다.
 
+## 예시 이미지
+![스텝1](https://example.com)
+![스텝2](https://example.com)
+![스텝3](https://example.com)
+![스텝4](https://example.com)
+![스텝5](https://example.com)
+![스텝6](https://example.com)
+
 ## 조작
 
 프로그램을 켜면 **메뉴**가 먼저 뜬다. 스텝 하나가 항목 하나다. 고르면 그 씬으로 들어가고 `ESC` 로 돌아온다.
