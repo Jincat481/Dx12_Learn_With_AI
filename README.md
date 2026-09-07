@@ -4,12 +4,13 @@
 가이드의 과제 1~6과 확장 과제(`.cso` 캐시 로드)까지 모두 구현되어 있다.
 
 ## 예시 이미지
-![스텝1](https://example.com)
-![스텝2](https://example.com)
-![스텝3]<img width="1278" height="747" alt="image" src="https://github.com/user-attachments/assets/888ec50c-7c18-443d-bde7-2dc91cbc6a7b" />
-![스텝4](https://example.com)
-![스텝5](https://example.com)
-![스텝6](https://example.com)
+<img width="1279" height="743" alt="step1" src="https://github.com/user-attachments/assets/a5596a18-b9be-41c5-9c03-9c2d55c60145" />
+<img width="1268" height="748" alt="step2" src="https://github.com/user-attachments/assets/7ea9ea31-ab43-4697-825c-77ba75cd0022" />
+<img width="1278" height="747" alt="image" src="https://github.com/user-attachments/assets/888ec50c-7c18-443d-bde7-2dc91cbc6a7b" />
+<img width="1270" height="751" alt="image" src="https://github.com/user-attachments/assets/77ec238a-9072-4b26-b826-7136be0e5b24" />
+<img width="1275" height="741" alt="image" src="https://github.com/user-attachments/assets/91f09859-2b79-48c4-b3b7-343b0681b07c" />
+<img width="1274" height="743" alt="image" src="https://github.com/user-attachments/assets/a5a26a01-4a80-4cd3-a186-b84433f5fc97" />
+<img width="1274" height="743" alt="image" src="https://github.com/user-attachments/assets/8fd9a634-36df-424e-8e5f-4872e2a5e8ce" />
 
 ## 조작
 
