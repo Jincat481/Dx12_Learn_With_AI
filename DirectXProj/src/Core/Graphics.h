@@ -68,6 +68,20 @@ public:
     // 3D 메시 하나를 그린다. 깊이 테스트가 켜진 상태로 그려진다.
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const MeshDrawParams& drawParams);
 
+    // ---- 테셀레이션 지형 (스텝 7) ----
+    struct TessDrawParams
+    {
+        DirectX::XMFLOAT4 tess{ 1.0f, 16.0f, 800.0f, 1.0f };
+        DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.28f };
+        DirectX::XMFLOAT4 heightRange{ 0.0f, 1.0f, 0.0f, 0.0f };
+        DirectX::XMFLOAT4 params{ 0.0f, 1024.0f, 1.0f / 512.0f, 0.0f };
+        ID3D11ShaderResourceView* heightMap = nullptr;
+        bool wireframe = false;
+    };
+
+    // 제어점 4개짜리 패치 목록을 그린다. 실제 삼각형은 GPU 가 만든다.
+    void DrawTessellatedPatches(const Mesh& mesh, DirectX::FXMMATRIX world, const TessDrawParams& params);
+
     // ---- 하늘 (스텝 8, 9) ----
     struct SkyDrawParams
     {
@@ -107,6 +121,7 @@ private:
     bool CreateDepthBuffer();        // 깊이 버퍼 + 깊이 상태 (S29)
     bool CreateMeshPipeline();       // 터레인 셰이더, 상수 버퍼, 래스터라이저 상태
     bool CreateSkyPipeline();        // 하늘 셰이더와 상수 버퍼
+    bool CreateTessPipeline();       // 테셀레이션 셰이더와 상수 버퍼
 
     ComPtr<ID3D11Device>           m_device;
     ComPtr<ID3D11DeviceContext>    m_context;
@@ -131,6 +146,9 @@ private:
 
     ComPtr<ID3D11Buffer>            m_skyConstantBuffer;
     std::shared_ptr<Shader>         m_skyShader;
+
+    ComPtr<ID3D11Buffer>            m_tessConstantBuffer;
+    std::shared_ptr<Shader>         m_tessShader;
 
     DirectX::XMFLOAT4X4 m_view3D{};
     DirectX::XMFLOAT4X4 m_projection3D{};

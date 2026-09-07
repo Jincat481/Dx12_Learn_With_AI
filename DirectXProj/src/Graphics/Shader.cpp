@@ -97,6 +97,11 @@ bool Shader::BuildFromCache(CompiledSet& out)
     if (!m_desc.useCache)
         return false;
 
+    // 테셀레이션 셰이더까지 캐시하려면 경로가 4개로 늘어난다.
+    // 학습용이라 그 경우는 그냥 매번 컴파일한다.
+    if (!m_desc.hsPath.empty())
+        return false;
+
     const std::wstring vsCache = MakeCachePath(m_desc.vsPath);
     const std::wstring psCache = MakeCachePath(m_desc.psPath);
 
@@ -173,6 +178,39 @@ bool Shader::BuildFromSource(CompiledSet& out)
         return false;
     }
 
+    // ---- 선택 : Hull / Domain 셰이더 (S59) ----
+    //  둘은 반드시 짝으로 있어야 한다. 하나만 있으면 파이프라인이 성립하지 않는다.
+    if (!m_desc.hsPath.empty() && !m_desc.dsPath.empty())
+    {
+        ComPtr<ID3DBlob> hsBlob;
+        if (!CompileHLSL(m_desc.hsPath, m_desc.hsEntry, m_desc.hsProfile, hsBlob))
+            return false;
+
+        ComPtr<ID3DBlob> dsBlob;
+        if (!CompileHLSL(m_desc.dsPath, m_desc.dsEntry, m_desc.dsProfile, dsBlob))
+            return false;
+
+        if (DX_FAILED(m_device->CreateHullShader(hsBlob->GetBufferPointer(), hsBlob->GetBufferSize(),
+                                                 nullptr, out.hs.GetAddressOf()), L"CreateHullShader"))
+        {
+            m_lastError = L"CreateHullShader 실패";
+            return false;
+        }
+
+        if (DX_FAILED(m_device->CreateDomainShader(dsBlob->GetBufferPointer(), dsBlob->GetBufferSize(),
+                                                   nullptr, out.ds.GetAddressOf()), L"CreateDomainShader"))
+        {
+            m_lastError = L"CreateDomainShader 실패";
+            return false;
+        }
+
+        if (m_desc.cacheCompiled)
+        {
+            SaveBlobToCache(m_desc.hsPath, hsBlob.Get());
+            SaveBlobToCache(m_desc.dsPath, dsBlob.Get());
+        }
+    }
+
     if (m_desc.cacheCompiled)
     {
         SaveBlobToCache(m_desc.vsPath, vsBlob.Get());
@@ -224,6 +262,8 @@ bool Shader::Reload()
     m_vertexShader = built.vs;
     m_pixelShader  = built.ps;
     m_inputLayout  = built.layout;
+    m_hullShader   = built.hs;
+    m_domainShader = built.ds;
     return true;
 }
 
@@ -235,4 +275,9 @@ void Shader::Bind(ID3D11DeviceContext* context) const
     context->IASetInputLayout(m_inputLayout.Get());
     context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
     context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+
+    // 테셀레이션을 쓰지 않는 셰이더로 넘어갈 때 이전 단계가 남지 않도록
+    // 항상 명시적으로 설정한다(없으면 nullptr).
+    context->HSSetShader(m_hullShader.Get(), nullptr, 0);
+    context->DSSetShader(m_domainShader.Get(), nullptr, 0);
 }

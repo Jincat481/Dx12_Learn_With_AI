@@ -63,6 +63,18 @@ struct TerrainConstantBuffer
     DirectX::XMFLOAT4   lodSelect;     // 현재 LOD 에 해당하는 성분만 1 (모프 타깃 선택용)
 };
 
+// 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 5 = 208 bytes
+struct TessConstantBuffer
+{
+    DirectX::XMFLOAT4X4 wvp;
+    DirectX::XMFLOAT4X4 world;
+    DirectX::XMFLOAT4   eyePosition;
+    DirectX::XMFLOAT4   tess;          // x 최소분할 / y 최대분할 / z 거리기준 / w 높이배율
+    DirectX::XMFLOAT4   lightDirection;
+    DirectX::XMFLOAT4   heightRange;
+    DirectX::XMFLOAT4   params;        // x 와이어프레임 / y 지형 크기 / z 텍셀 크기
+};
+
 // 하늘 상수 버퍼 (b0) : 64 + 16 * 4 = 128 bytes
 struct SkyConstantBuffer
 {

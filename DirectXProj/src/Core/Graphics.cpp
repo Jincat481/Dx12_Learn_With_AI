@@ -29,6 +29,7 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
     if (!CreateSpritePipeline())         return false;
     if (!CreateMeshPipeline())           return false;
     if (!CreateSkyPipeline())            return false;
+    if (!CreateTessPipeline())           return false;
 
     TextureManager::Get().Initialize(m_device.Get());
 
@@ -66,6 +67,8 @@ void Graphics::Shutdown()
     m_blendState.Reset();
     m_samplerState.Reset();
     m_constantBuffer.Reset();
+    m_tessShader.reset();
+    m_tessConstantBuffer.Reset();
     m_skyShader.reset();
     m_skyConstantBuffer.Reset();
     m_terrainShader.reset();
@@ -666,4 +669,104 @@ void Graphics::DrawSky(const Mesh& mesh, FXMMATRIX world, const SkyDrawParams& p
     m_context->PSSetConstantBuffers(0, 1, m_skyConstantBuffer.GetAddressOf());
 
     m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
+}
+
+// =============================================================
+// 테셀레이션 파이프라인 (스텝 7)
+// =============================================================
+bool Graphics::CreateTessPipeline()
+{
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = sizeof(TessConstantBuffer);
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (DX_FAILED(m_device->CreateBuffer(&cbDesc, nullptr, m_tessConstantBuffer.GetAddressOf()),
+                  L"CreateBuffer(tess constant)"))
+        return false;
+
+    Shader::Desc shaderDesc;
+    shaderDesc.vsPath = Paths::Resolve(L"Shaders/TessVS.hlsl");
+    shaderDesc.psPath = Paths::Resolve(L"Shaders/TessPS.hlsl");
+    shaderDesc.hsPath = Paths::Resolve(L"Shaders/TessHS.hlsl");
+    shaderDesc.dsPath = Paths::Resolve(L"Shaders/TessDS.hlsl");
+    shaderDesc.layout = TerrainVertex::kLayout;
+    shaderDesc.layoutCount = TerrainVertex::kLayoutCount;
+    shaderDesc.cacheCompiled = false;   // 테셀레이션 셰이더는 캐시하지 않는다
+    shaderDesc.useCache = false;
+
+    m_tessShader = std::make_shared<Shader>();
+    if (!m_tessShader->Load(m_device.Get(), shaderDesc))
+    {
+        dxutil::DebugLog(L"[Graphics] 테셀레이션 셰이더 로드 실패 : %s", m_tessShader->GetLastError().c_str());
+        return false;
+    }
+
+#if HOT_RELOAD_ENABLED
+    ShaderManager::Get().Register("Tessellation", m_tessShader);
+#endif
+
+    return true;
+}
+
+void Graphics::DrawTessellatedPatches(const Mesh& mesh, FXMMATRIX world, const TessDrawParams& params)
+{
+    if (!m_context || !mesh.IsValid() || !m_tessShader || !m_tessShader->IsValid())
+        return;
+
+    const XMMATRIX view = XMLoadFloat4x4(&m_view3D);
+    const XMMATRIX projection = XMLoadFloat4x4(&m_projection3D);
+    const XMMATRIX wvp = world * view * projection;
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(m_context->Map(m_tessConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        TessConstantBuffer* cb = static_cast<TessConstantBuffer*>(mapped.pData);
+        XMStoreFloat4x4(&cb->wvp, XMMatrixTranspose(wvp));
+        XMStoreFloat4x4(&cb->world, XMMatrixTranspose(world));
+
+        cb->eyePosition = XMFLOAT4(m_eyePosition.x, m_eyePosition.y, m_eyePosition.z, 1.0f);
+        cb->tess = params.tess;
+
+        XMVECTOR light = XMVector3Normalize(XMVectorSetW(XMLoadFloat4(&params.lightDirection), 0.0f));
+        XMStoreFloat4(&cb->lightDirection, light);
+        cb->lightDirection.w = params.lightDirection.w;
+
+        cb->heightRange = params.heightRange;
+        cb->params = params.params;
+
+        m_context->Unmap(m_tessConstantBuffer.Get(), 0);
+    }
+
+    m_context->OMSetDepthStencilState(m_depthEnabledState.Get(), 0);
+    m_context->RSSetState(params.wireframe ? m_rasterWireframeState.Get() : m_rasterSolidState.Get());
+
+    const UINT stride = mesh.GetStride();
+    const UINT offset = 0;
+    ID3D11Buffer* vertexBuffer = mesh.GetVertexBuffer();
+
+    // 삼각형이 아니라 "제어점 4개짜리 패치" 목록임을 알려 준다. (S59)
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
+    m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    m_context->IASetIndexBuffer(mesh.GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+    m_tessShader->Bind(m_context.Get());
+
+    // 상수 버퍼는 네 단계 모두가 본다.
+    m_context->VSSetConstantBuffers(0, 1, m_tessConstantBuffer.GetAddressOf());
+    m_context->HSSetConstantBuffers(0, 1, m_tessConstantBuffer.GetAddressOf());
+    m_context->DSSetConstantBuffers(0, 1, m_tessConstantBuffer.GetAddressOf());
+    m_context->PSSetConstantBuffers(0, 1, m_tessConstantBuffer.GetAddressOf());
+
+    // 높이맵은 도메인 셰이더가 읽는다.
+    ID3D11ShaderResourceView* heightMap = params.heightMap;
+    m_context->DSSetShaderResources(0, 1, &heightMap);
+    m_context->DSSetSamplers(0, 1, m_samplerState.GetAddressOf());
+
+    m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
+
+    // 다음 그리기가 삼각형 목록으로 돌아가도록 테셀레이션 단계를 해제한다.
+    m_context->HSSetShader(nullptr, nullptr, 0);
+    m_context->DSSetShader(nullptr, nullptr, 0);
 }

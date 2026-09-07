@@ -131,6 +131,7 @@
     <ClCompile Include="src\Terrain\HeightMapImage.cpp" />
     <ClCompile Include="src\Terrain\TerrainMeshBuilder.cpp" />
     <ClCompile Include="src\Terrain\TerrainRenderer.cpp" />
+    <ClCompile Include="src\Terrain\TessellatedTerrainRenderer.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
@@ -177,6 +178,7 @@
     <ClInclude Include="src\Terrain\HeightMapImage.h" />
     <ClInclude Include="src\Terrain\TerrainMeshBuilder.h" />
     <ClInclude Include="src\Terrain\TerrainRenderer.h" />
+    <ClInclude Include="src\Terrain\TessellatedTerrainRenderer.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />
@@ -192,6 +194,11 @@
     <None Include="Shaders\TerrainPS.hlsl" />
     <None Include="Shaders\SkyVS.hlsl" />
     <None Include="Shaders\SkyPS.hlsl" />
+    <None Include="Shaders\TessCommon.hlsli" />
+    <None Include="Shaders\TessVS.hlsl" />
+    <None Include="Shaders\TessHS.hlsl" />
+    <None Include="Shaders\TessDS.hlsl" />
+    <None Include="Shaders\TessPS.hlsl" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

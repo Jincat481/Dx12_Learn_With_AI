@@ -23,6 +23,16 @@ public:
         std::string  vsProfile = "vs_5_0";
         std::string  psProfile = "ps_5_0";
 
+        // 테셀레이션용. 비워 두면 쓰지 않는다. (스텝 7 / S59)
+        //  Hull   : 패치를 얼마나 잘게 쪼갤지 정한다
+        //  Domain : 쪼개진 각 점의 실제 위치를 만든다
+        std::wstring hsPath;
+        std::wstring dsPath;
+        std::string  hsEntry = "main";
+        std::string  dsEntry = "main";
+        std::string  hsProfile = "hs_5_0";
+        std::string  dsProfile = "ds_5_0";
+
         const D3D11_INPUT_ELEMENT_DESC* layout = nullptr;
         UINT layoutCount = 0;
 
@@ -39,6 +49,7 @@ public:
     void Bind(ID3D11DeviceContext* context) const;
 
     bool IsValid() const { return m_vertexShader && m_pixelShader && m_inputLayout; }
+    bool HasTessellation() const { return m_hullShader && m_domainShader; }
     const Desc& GetDesc() const { return m_desc; }
     const std::wstring& GetLastError() const { return m_lastError; }
 
@@ -48,6 +59,8 @@ private:
         ComPtr<ID3D11VertexShader> vs;
         ComPtr<ID3D11PixelShader>  ps;
         ComPtr<ID3D11InputLayout>  layout;
+        ComPtr<ID3D11HullShader>   hs;
+        ComPtr<ID3D11DomainShader> ds;
     };
 
     bool BuildFromSource(CompiledSet& out);                                   // HLSL 컴파일 경로
@@ -64,6 +77,8 @@ private:
     ComPtr<ID3D11VertexShader> m_vertexShader;
     ComPtr<ID3D11PixelShader>  m_pixelShader;
     ComPtr<ID3D11InputLayout>  m_inputLayout;
+    ComPtr<ID3D11HullShader>   m_hullShader;
+    ComPtr<ID3D11DomainShader> m_domainShader;
 
     std::wstring m_lastError;
 };

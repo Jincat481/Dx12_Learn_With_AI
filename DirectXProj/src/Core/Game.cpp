@@ -17,6 +17,7 @@
 #include "Terrain/TerrainRenderer.h"
 #include "Terrain/ChunkedTerrainRenderer.h"
 #include "Engine/SkyRenderer.h"
+#include "Terrain/TessellatedTerrainRenderer.h"
 #include "Editor/MenuScreen.h"
 #include "Game/MenuController.h"
 
@@ -108,6 +109,7 @@ void Game::RegisterComponentTypes()
     factory.Register<TerrainRenderer>("TerrainRenderer");
     factory.Register<ChunkedTerrainRenderer>("ChunkedTerrainRenderer");
     factory.Register<SkyRenderer>("SkyRenderer");
+    factory.Register<TessellatedTerrainRenderer>("TessellatedTerrainRenderer");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -250,6 +252,39 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     }
 }
 
+// -------------------------------------------------------------
+// 스텝 7 : 하드웨어 테셀레이션
+// -------------------------------------------------------------
+void Game::BuildTessellationScene()
+{
+    Scene* scene = SceneManager::Get().CreateScene("Terrain_Step7");
+    if (!scene)
+        return;
+
+    GameObject* cameraObject = scene->CreateGameObject("MainCamera");
+    Camera* camera = cameraObject->AddComponent<Camera>();
+    camera->SetPosition(XMFLOAT3(0.0f, 120.0f, -320.0f));
+    camera->SetAngles(0.0f, -14.0f);
+
+    GameObject* skyObject = scene->CreateGameObject("Sky");
+    skyObject->AddComponent<SkyRenderer>();
+
+    GameObject* terrainObject = scene->CreateGameObject("Terrain");
+    TessellatedTerrainRenderer* terrain = terrainObject->AddComponent<TessellatedTerrainRenderer>();
+
+    // 제어점은 아주 성기다. 32 x 32 패치 = 제어점 1089개뿐이다.
+    terrain->SetGrid(32, 32, 32.0f);
+
+    terrain::HeightParams height;
+    height.amplitude = 70.0f;
+    height.frequency = 0.0035f;
+    terrain->SetHeightParams(height);
+
+    // 처음에는 분할 패턴이 눈에 보이도록 낮게. + 키로 올려 가며 비교한다.
+    terrain->SetTessellationRange(1.0f, 10.0f);
+    terrain->SetWireframe(true);   // 분할이 눈에 보이도록 처음엔 와이어프레임
+}
+
 void Game::BuildSpriteDemoScene()
 {
     Scene* scene = SceneManager::Get().CreateScene("SpriteDemo");
@@ -358,6 +393,11 @@ void Game::SetupShowcaseList()
         L"터레인 · 스텝 6-2  스티칭 & 지오모핑",
         L"스커트로 LOD 경계 균열 메우기 · 모프 타깃으로 팝핑 제거 (S52~S53)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::LodAdvanced, "Terrain_Step6b"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 7  하드웨어 테셀레이션",
+        L"성긴 패치를 GPU 가 실시간 분할 · Hull/Domain 셰이더 (S59~S62)",
+        [this]() { BuildTessellationScene(); } });
 
     m_showcases.push_back({
         L"터레인 · 스텝 8  스카이맵 (SkyDome)",
@@ -540,9 +580,36 @@ void Game::UpdateControlsPanel()
         }
     }
 
+    TessellatedTerrainRenderer* tess = nullptr;
+    for (const auto& object : scene->GetGameObjects())
+    {
+        if (!object || object->IsPendingDestroy())
+            continue;
+        if (TessellatedTerrainRenderer* found = object->GetComponent<TessellatedTerrainRenderer>())
+        {
+            tess = found;
+            break;
+        }
+    }
+
     std::vector<ControlsPanel::Line> lines;
 
-    if (chunked)
+    if (tess)
+    {
+        wchar_t factor[48];
+        _snwprintf_s(factor, _countof(factor), _TRUNCATE, L"%.0f ~ %.0f",
+                     tess->GetMinFactor(), tess->GetMaxFactor());
+
+        wchar_t patches[48];
+        _snwprintf_s(patches, _countof(patches), _TRUNCATE, L"%d개", tess->GetPatchCount());
+
+        m_controls.SetTitle(L"조작   (Tab 으로 와이어프레임)");
+        lines.push_back({ L"Tab", L"와이어프레임", tess->IsWireframe() ? L"켬" : L"끔", true });
+        lines.push_back({ L"+ / -", L"최대 분할", factor, true });
+        lines.push_back({ L"N", L"새 지형 생성", L"", false });
+        lines.push_back({ L"", L"보내는 패치", patches, true });
+    }
+    else if (chunked)
     {
         const terrain::TerrainQuadTree::Stats& stats = chunked->GetStats();
 
@@ -883,6 +950,24 @@ void Game::HandleFrameEndCommands()
             }
 
             continue;   // 청크 지형은 여기까지
+        }
+
+        // ---- 테셀레이션 지형 (스텝 7) ----
+        if (TessellatedTerrainRenderer* tess = object->GetComponent<TessellatedTerrainRenderer>())
+        {
+            if (input.GetKeyDown(VK_TAB))
+            {
+                tess->ToggleWireframe();
+                dxutil::DebugLog(L"[Tess] 와이어프레임 %s", tess->IsWireframe() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown(VK_OEM_PLUS) || input.GetKeyDown(VK_ADD))
+                tess->AdjustMaxFactor(4.0f);
+            if (input.GetKeyDown(VK_OEM_MINUS) || input.GetKeyDown(VK_SUBTRACT))
+                tess->AdjustMaxFactor(-4.0f);
+            if (input.GetKeyDown('N'))
+                tess->Regenerate(static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 31u));
+
+            continue;
         }
 
         // ---- 하늘 (스텝 8~9) ----
