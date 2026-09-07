@@ -110,7 +110,7 @@ void Game::RegisterComponentTypes()
 // 터레인 쇼케이스 - 스텝 1 : 평면 그리드
 //  카메라 오브젝트 하나와 터레인 오브젝트 하나로 시작한다.
 // -------------------------------------------------------------
-void Game::BuildTerrainScene(bool heightEnabled, const std::string& sceneName)
+void Game::BuildTerrainScene(TerrainMode mode, const std::string& sceneName)
 {
     Scene* scene = SceneManager::Get().CreateScene(sceneName);
     if (!scene)
@@ -125,7 +125,24 @@ void Game::BuildTerrainScene(bool heightEnabled, const std::string& sceneName)
     GameObject* terrainObject = scene->CreateGameObject("Terrain");
     TerrainRenderer* terrain = terrainObject->AddComponent<TerrainRenderer>();
     terrain->SetGrid(64, 64, 2.0f);   // 64 x 64 칸, 칸 한 변 2 → 128 x 128 크기
-    terrain->SetHeightEnabled(heightEnabled);
+
+    switch (mode)
+    {
+    case TerrainMode::Flat:
+        terrain->SetHeightEnabled(false);
+        break;
+
+    case TerrainMode::Noise:
+        terrain->SetHeightEnabled(true);
+        terrain->SetHeightSourceNoise();
+        break;
+
+    case TerrainMode::Image:
+        terrain->SetHeightEnabled(true);
+        // 이미지 값은 0~1 이라 노이즈보다 진폭을 크게 줘야 굴곡이 보인다.
+        terrain->SetHeightSourceImage(L"Assets/heightmap.png", 26.0f);
+        break;
+    }
 }
 
 void Game::BuildSpriteDemoScene()
@@ -205,12 +222,17 @@ void Game::SetupShowcaseList()
     m_showcases.push_back({
         L"터레인 · 스텝 1  평면 그리드",
         L"격자 메시 생성 · 원근 카메라 · 깊이 버퍼 (S27~S35)",
-        [this]() { BuildTerrainScene(/*heightEnabled*/ false, "Terrain_Step1"); } });
+        [this]() { BuildTerrainScene(TerrainMode::Flat, "Terrain_Step1"); } });
 
     m_showcases.push_back({
         L"터레인 · 스텝 2  펄린 노이즈 지형",
         L"펄린 노이즈 fBm · 중앙 차분 법선 · 램버트 조명 (S36~S40)",
-        [this]() { BuildTerrainScene(/*heightEnabled*/ true, "Terrain_Step2"); } });
+        [this]() { BuildTerrainScene(TerrainMode::Noise, "Terrain_Step2"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 3  높이맵 이미지 지형",
+        L"회색조 이미지 → 높이 · 이중선형 보간 · 8비트 양자화 (S41~S42)",
+        [this]() { BuildTerrainScene(TerrainMode::Image, "Terrain_Step3"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",

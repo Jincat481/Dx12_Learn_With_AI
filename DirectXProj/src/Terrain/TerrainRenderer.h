@@ -46,6 +46,11 @@ public:
 
     void Regenerate(unsigned seed);   // 새 seed 로 다시 만든다
 
+    // ---- 스텝 3 : 높이맵 이미지 ----
+    void SetHeightSourceNoise();
+    void SetHeightSourceImage(const std::wstring& path, float amplitude);
+    terrain::HeightSource GetHeightSource() const { return m_height.GetParams().source; }
+
     void SetNoiseType(terrain::NoiseType type);
     terrain::NoiseType GetNoiseType() const { return m_height.GetParams().noiseType; }
     void ToggleNoiseType();
@@ -61,6 +66,7 @@ private:
 
     terrain::GridDesc m_desc;
     terrain::HeightField m_height;
+    std::wstring m_imagePath;
     terrain::HeightRange m_heightRange;
     bool m_heightEnabled = true;
     bool m_dirty = true;

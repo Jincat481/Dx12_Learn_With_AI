@@ -123,6 +123,7 @@
     <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\Graphics\Mesh.cpp" />
     <ClCompile Include="src\Terrain\HeightField.cpp" />
+    <ClCompile Include="src\Terrain\HeightMapImage.cpp" />
     <ClCompile Include="src\Terrain\TerrainMeshBuilder.cpp" />
     <ClCompile Include="src\Terrain\TerrainRenderer.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
@@ -162,6 +163,7 @@
     <ClInclude Include="src\Engine\Camera.h" />
     <ClInclude Include="src\Graphics\Mesh.h" />
     <ClInclude Include="src\Terrain\HeightField.h" />
+    <ClInclude Include="src\Terrain\HeightMapImage.h" />
     <ClInclude Include="src\Terrain\TerrainMeshBuilder.h" />
     <ClInclude Include="src\Terrain\TerrainRenderer.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />

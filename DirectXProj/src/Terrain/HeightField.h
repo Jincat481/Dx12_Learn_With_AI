@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/stdafx.h"
+#include "Terrain/HeightMapImage.h"
 
 // =============================================================
 // HeightField (S36, S37)
@@ -27,8 +28,18 @@ namespace terrain
         Perlin,
     };
 
+    // 높이를 어디서 가져올지. (S41)
+    //  Noise : 함수. 아무 좌표나 물어봐도 값이 나온다. 해상도 제한이 없다.
+    //  Image : 표본. 픽셀 사이는 보간해야 하고 8비트라 256단계로 양자화되어 있다.
+    enum class HeightSource
+    {
+        Noise,
+        Image,
+    };
+
     struct HeightParams
     {
+        HeightSource source = HeightSource::Noise;
         NoiseType noiseType = NoiseType::Perlin;
         unsigned seed = 1337;
         float frequency = 0.012f;    // 낮을수록 지형이 완만하고 넓다
@@ -37,6 +48,10 @@ namespace terrain
         float persistence = 0.5f;    // 옥타브마다 진폭에 곱하는 값
         float lacunarity = 2.0f;     // 옥타브마다 주파수에 곱하는 값
         float flatten = 1.0f;        // 0 이면 완전 평면(스텝 1 과 같은 결과)
+
+        // 이미지 모드에서 월드 좌표를 UV 로 바꿀 때 쓰는 지형 크기
+        float worldWidth = 128.0f;
+        float worldDepth = 128.0f;
     };
 
     class HeightField
@@ -46,6 +61,10 @@ namespace terrain
         explicit HeightField(const HeightParams& params) : m_params(params) {}
 
         void SetParams(const HeightParams& params) { m_params = params; }
+
+        // 이미지 모드에서 쓸 높이맵. 여러 터레인이 한 장을 공유할 수 있다.
+        void SetImage(std::shared_ptr<HeightMapImage> image) { m_image = std::move(image); }
+        const std::shared_ptr<HeightMapImage>& GetImage() const { return m_image; }
         const HeightParams& GetParams() const { return m_params; }
 
         // 월드 좌표에서의 높이
@@ -61,6 +80,9 @@ namespace terrain
         float PerlinNoise(float x, float z) const;
         float FractalNoise(float x, float z) const;
 
+        float SampleImage(float x, float z) const;
+
         HeightParams m_params;
+        std::shared_ptr<HeightMapImage> m_image;
     };
 }

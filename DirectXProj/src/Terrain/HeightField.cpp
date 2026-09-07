@@ -149,10 +149,33 @@ namespace terrain
         return (normalizer > 0.0f) ? (total / normalizer) : 0.0f;
     }
 
+    // -------------------------------------------------------------
+    // 이미지에서 높이 읽기 (S41)
+    //  격자는 원점 중심으로 놓여 있으므로 월드 좌표를 0~1 UV 로 옮긴다.
+    //  이미지의 행 0 은 화면 위쪽이라 +Z 에 대응시킨다(격자 생성 순서와 맞춘다).
+    // -------------------------------------------------------------
+    float HeightField::SampleImage(float x, float z) const
+    {
+        if (!m_image || !m_image->IsValid())
+            return 0.0f;
+
+        const float width = (m_params.worldWidth > 0.0f) ? m_params.worldWidth : 1.0f;
+        const float depth = (m_params.worldDepth > 0.0f) ? m_params.worldDepth : 1.0f;
+
+        const float u = (x + width * 0.5f) / width;
+        const float v = (depth * 0.5f - z) / depth;
+
+        // 이미지 값은 0~1 이라 노이즈(-1~1)와 달리 항상 지면 위로 올라간다.
+        return m_image->SampleBilinear(u, v) * m_params.amplitude * m_params.flatten;
+    }
+
     float HeightField::Sample(float x, float z) const
     {
         if (m_params.flatten <= 0.0f)
             return 0.0f;   // 완전 평면 (스텝 1 과 같은 결과)
+
+        if (m_params.source == HeightSource::Image)
+            return SampleImage(x, z);
 
         return FractalNoise(x, z) * m_params.amplitude * m_params.flatten;
     }

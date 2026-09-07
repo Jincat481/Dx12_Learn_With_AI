@@ -3,6 +3,8 @@
 #include "Engine/GameObject.h"
 #include "Engine/Transform.h"
 #include "Core/Graphics.h"
+#include "Utils/Paths.h"
+#include "Utils/StringUtil.h"
 
 using namespace DirectX;
 
@@ -46,6 +48,35 @@ void TerrainRenderer::Regenerate(unsigned seed)
     m_dirty = true;
 }
 
+void TerrainRenderer::SetHeightSourceNoise()
+{
+    terrain::HeightParams params = m_height.GetParams();
+    params.source = terrain::HeightSource::Noise;
+    params.amplitude = 14.0f;
+    m_height.SetParams(params);
+    m_dirty = true;
+}
+
+void TerrainRenderer::SetHeightSourceImage(const std::wstring& path, float amplitude)
+{
+    auto image = std::make_shared<terrain::HeightMapImage>();
+    if (!image->LoadFromFile(Paths::Resolve(path)))
+    {
+        dxutil::DebugLog(L"[Terrain] 높이맵 로드 실패, 노이즈로 되돌린다 : %s", path.c_str());
+        SetHeightSourceNoise();
+        return;
+    }
+
+    terrain::HeightParams params = m_height.GetParams();
+    params.source = terrain::HeightSource::Image;
+    params.amplitude = amplitude;
+    m_height.SetParams(params);
+    m_height.SetImage(std::move(image));
+
+    m_imagePath = path;
+    m_dirty = true;
+}
+
 void TerrainRenderer::SetNoiseType(terrain::NoiseType type)
 {
     terrain::HeightParams params = m_height.GetParams();
@@ -67,6 +98,12 @@ bool TerrainRenderer::RebuildMesh()
 
     if (!m_graphics || !m_graphics->GetDevice())
         return false;
+
+    // 이미지 모드는 월드 크기를 알아야 UV 를 만들 수 있다.
+    terrain::HeightParams params = m_height.GetParams();
+    params.worldWidth = m_desc.GetWidth();
+    params.worldDepth = m_desc.GetDepth();
+    m_height.SetParams(params);
 
     terrain::MeshData data;
     if (!terrain::BuildGrid(m_desc, data, m_heightEnabled ? &m_height : nullptr))
@@ -125,6 +162,8 @@ void TerrainRenderer::ToJson(json::Value& out) const
     out["heightEnabled"] = json::Value(m_heightEnabled);
 
     const terrain::HeightParams& height = m_height.GetParams();
+    out["source"]      = json::Value(std::string(height.source == terrain::HeightSource::Image ? "image" : "noise"));
+    out["heightMap"]   = json::Value(StringUtil::WideToUtf8(m_imagePath));
     out["noiseType"]   = json::Value(std::string(height.noiseType == terrain::NoiseType::Perlin ? "perlin" : "value"));
     out["seed"]        = json::Value(static_cast<uint64_t>(height.seed));
     out["frequency"]   = json::Value(height.frequency);

@@ -27,8 +27,11 @@ public:
 
 private:
     void RegisterComponentTypes();     // ComponentFactory 등록 (과제 5)
+    // 터레인 씬의 높이 공급원. 스텝 1/2/3 이 이 값만 다르다.
+    enum class TerrainMode { Flat, Noise, Image };
+
     // 씬 구성 함수들. 메뉴 항목 하나가 이 중 하나를 부른다.
-    void BuildTerrainScene(bool heightEnabled, const std::string& sceneName);
+    void BuildTerrainScene(TerrainMode mode, const std::string& sceneName);
     void BuildSpriteDemoScene();
 
     // 메뉴에 올라가는 항목 하나.
