@@ -56,6 +56,10 @@ public:
         DirectX::XMFLOAT4 splat{ 24.0f, 0.0f, 0.0f, 0.0f };               // x 타일 횟수 / y 스플래팅 on
         bool wireframe = false;
 
+        // 인덱스 버퍼의 일부만 그릴 때 사용한다(청크 LOD). count 가 0 이면 메시 전체.
+        UINT indexOffset = 0;
+        UINT indexCount = 0;
+
         // 스플래팅 레이어 : 흙 / 풀 / 바위 / 눈 (t0~t3)
         ID3D11ShaderResourceView* layers[4] = { nullptr, nullptr, nullptr, nullptr };
     };
@@ -65,6 +69,8 @@ public:
 
     float GetAspectRatio() const;
     DirectX::XMFLOAT3 GetEyePosition3D() const { return m_eyePosition; }
+    DirectX::XMMATRIX GetView3D() const       { return DirectX::XMLoadFloat4x4(&m_view3D); }
+    DirectX::XMMATRIX GetProjection3D() const { return DirectX::XMLoadFloat4x4(&m_projection3D); }
 
     // ---- GDI 오버레이 ----
     //  백버퍼를 GDI 호환으로 만들어 두고 DC 를 빌려 그 위에 직접 그린다.

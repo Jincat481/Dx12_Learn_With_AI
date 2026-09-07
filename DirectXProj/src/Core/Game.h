@@ -31,6 +31,10 @@ private:
     // 터레인 씬의 높이 공급원. 스텝 1/2/3 이 이 값만 다르다.
     enum class TerrainMode { Flat, Noise, Image, Splatting };
 
+    // 청크 기반 씬 (스텝 5 이후)
+    enum class ChunkedMode { Culling, Lod };
+    void BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneName);
+
     // 씬 구성 함수들. 메뉴 항목 하나가 이 중 하나를 부른다.
     void BuildTerrainScene(TerrainMode mode, const std::string& sceneName);
     void BuildSpriteDemoScene();

@@ -15,6 +15,7 @@
 #include "Engine/Camera.h"
 
 #include "Terrain/TerrainRenderer.h"
+#include "Terrain/ChunkedTerrainRenderer.h"
 #include "Editor/MenuScreen.h"
 #include "Game/MenuController.h"
 
@@ -104,6 +105,7 @@ void Game::RegisterComponentTypes()
     factory.Register<PlayerController>("PlayerController");
     factory.Register<Camera>("Camera");
     factory.Register<TerrainRenderer>("TerrainRenderer");
+    factory.Register<ChunkedTerrainRenderer>("ChunkedTerrainRenderer");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -149,6 +151,45 @@ void Game::BuildTerrainScene(TerrainMode mode, const std::string& sceneName)
         terrain->SetHeightSourceNoise(/*amplitude*/ 34.0f, /*frequency*/ 0.022f);
         terrain->SetDisplayMode(TerrainRenderer::DisplayMode::Splatting);
         break;
+    }
+}
+
+// -------------------------------------------------------------
+// 청크 기반 터레인 씬 (스텝 5 : 컬링, 스텝 6 : LOD)
+// -------------------------------------------------------------
+void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneName)
+{
+    Scene* scene = SceneManager::Get().CreateScene(sceneName);
+    if (!scene)
+        return;
+
+    GameObject* cameraObject = scene->CreateGameObject("MainCamera");
+    Camera* camera = cameraObject->AddComponent<Camera>();
+    camera->SetPosition(XMFLOAT3(0.0f, 90.0f, -150.0f));
+    camera->LookAt(XMFLOAT3(0.0f, 0.0f, 0.0f));
+
+    GameObject* terrainObject = scene->CreateGameObject("Terrain");
+    ChunkedTerrainRenderer* terrain = terrainObject->AddComponent<ChunkedTerrainRenderer>();
+
+    // 16 x 16 청크 x 한 청크 16칸 x 칸 4 = 1024 x 1024 크기, 청크 256개
+    terrain->SetGrid(16, 16, 16, 4.0f);
+
+    terrain::HeightParams height;
+    height.amplitude = 60.0f;
+    height.frequency = 0.006f;
+    terrain->SetHeightParams(height);
+
+    if (mode == ChunkedMode::Culling)
+    {
+        terrain->SetCullingEnabled(true);
+        terrain->SetLodEnabled(false);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::ChunkColor);
+    }
+    else
+    {
+        terrain->SetCullingEnabled(true);
+        terrain->SetLodEnabled(true);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::LodColor);
     }
 }
 
@@ -245,6 +286,16 @@ void Game::SetupShowcaseList()
         L"터레인 · 스텝 4  텍스처 스플래팅",
         L"경사도 / 높이 기반 4레이어 블렌딩 · UV 타일링 (S44~S47)",
         [this]() { BuildTerrainScene(TerrainMode::Splatting, "Terrain_Step4"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 5  쿼드트리 컬링",
+        L"청크 분할 · 절두체 평면 6장 · 쿼드트리로 통째 버리기 (S48~S50)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Culling, "Terrain_Step5"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 6  거리 기반 LOD",
+        L"거리에 따라 인덱스 간격을 벌려 삼각형 줄이기 (S51)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Lod, "Terrain_Step6"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -400,9 +451,41 @@ void Game::UpdateControlsPanel()
         }
     }
 
+    ChunkedTerrainRenderer* chunked = nullptr;
+    for (const auto& object : scene->GetGameObjects())
+    {
+        if (!object || object->IsPendingDestroy())
+            continue;
+        if (ChunkedTerrainRenderer* found = object->GetComponent<ChunkedTerrainRenderer>())
+        {
+            chunked = found;
+            break;
+        }
+    }
+
     std::vector<ControlsPanel::Line> lines;
 
-    if (terrain)
+    if (chunked)
+    {
+        const terrain::TerrainQuadTree::Stats& stats = chunked->GetStats();
+
+        wchar_t visible[64];
+        _snwprintf_s(visible, _countof(visible), _TRUNCATE, L"%d / %d 청크",
+                     stats.visibleChunks, stats.totalChunks);
+
+        wchar_t triangles[64];
+        _snwprintf_s(triangles, _countof(triangles), _TRUNCATE, L"%d 삼각형",
+                     chunked->GetDrawnTriangles());
+
+        m_controls.SetTitle(L"조작   (Tab 으로 보기 전환)");
+        lines.push_back({ L"Tab", L"표시 모드", chunked->GetDisplayModeName(), true });
+        lines.push_back({ L"C", L"절두체 컬링", chunked->IsCullingEnabled() ? L"켬" : L"끔", true });
+        lines.push_back({ L"L", L"거리 LOD", chunked->IsLodEnabled() ? L"켬" : L"끔", true });
+        lines.push_back({ L"N", L"새 지형 생성", L"", false });
+        lines.push_back({ L"", L"그리는 중", visible, true });
+        lines.push_back({ L"", L"", triangles, true });
+    }
+    else if (terrain)
     {
         m_controls.SetTitle(L"조작   (Tab 으로 보기 전환)");
         lines.push_back({ L"Tab", L"표시 모드", terrain->GetDisplayModeName(), true });
@@ -650,6 +733,27 @@ void Game::HandleFrameEndCommands()
         if (!terrain) continue;
 
         // Tab 하나로 표시 모드를 순환한다. (예전의 G / T / B 를 합쳤다)
+        if (ChunkedTerrainRenderer* chunked = object->GetComponent<ChunkedTerrainRenderer>())
+        {
+            if (input.GetKeyDown(VK_TAB))
+            {
+                chunked->CycleDisplayMode();
+                dxutil::DebugLog(L"[Terrain] 표시 모드 : %s", chunked->GetDisplayModeName());
+            }
+            if (input.GetKeyDown('C'))
+            {
+                chunked->ToggleCulling();
+                dxutil::DebugLog(L"[Terrain] 절두체 컬링 %s", chunked->IsCullingEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('L'))
+            {
+                chunked->ToggleLod();
+                dxutil::DebugLog(L"[Terrain] 거리 LOD %s", chunked->IsLodEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('N'))
+                chunked->Regenerate(static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 7u));
+        }
+
         if (input.GetKeyDown(VK_TAB))
         {
             terrain->CycleDisplayMode();

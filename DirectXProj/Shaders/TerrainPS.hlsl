@@ -12,7 +12,7 @@ cbuffer TerrainConstants : register(b0)
     float4   gParams;        // x,y : 격자 칸 수   z : 와이어프레임   w : 높이 사용(0/1)
     float4   gHeightRange;   // x : 최저 높이   y : 최고 높이
     float4   gLightDir;      // xyz : 방향광이 나아가는 방향   w : 환경광 세기
-    float4   gSplat;         // x : 타일 반복 횟수   y : 스플래팅 사용(0/1)
+    float4   gSplat;         // x : 타일 반복 횟수   y : 스플래팅 사용   z : 디버그 단색
 };
 
 // 스플래팅 레이어 (S44)
@@ -108,8 +108,13 @@ float4 main(PSInput input) : SV_TARGET
     float height01 = saturate((input.worldPos.y - gHeightRange.x) / span);
 
     // ---- 바탕색 ----
+    //  디버그 뷰(청크 색 / LOD 색)에서는 넘겨준 색을 그대로 쓴다.
     float3 baseColor = gColor.rgb;
-    if (useSplat)
+    if (gSplat.z > 0.5f)
+    {
+        baseColor = gColor.rgb;
+    }
+    else if (useSplat)
     {
         float slope = 1.0f - saturate(normal.y);
         baseColor = SplatColor(input.uv, height01, slope);

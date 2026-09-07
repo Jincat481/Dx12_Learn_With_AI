@@ -556,6 +556,7 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
     m_context->PSSetShaderResources(0, 4, drawParams.layers);
     m_context->PSSetSamplers(0, 1, m_wrapSamplerState.GetAddressOf());
 
-    // 3) 그리기
-    m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
+    // 3) 그리기. 청크 LOD 는 같은 인덱스 버퍼의 일부 구간만 쓴다.
+    const UINT indexCount = (drawParams.indexCount > 0) ? drawParams.indexCount : mesh.GetIndexCount();
+    m_context->DrawIndexed(indexCount, drawParams.indexOffset, 0);
 }

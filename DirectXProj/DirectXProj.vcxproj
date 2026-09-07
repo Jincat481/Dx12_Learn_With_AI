@@ -122,6 +122,10 @@
     <ClCompile Include="src\Game\MenuController.cpp" />
     <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\Graphics\Mesh.cpp" />
+    <ClCompile Include="src\Core\Frustum.cpp" />
+    <ClCompile Include="src\Terrain\TerrainChunk.cpp" />
+    <ClCompile Include="src\Terrain\TerrainQuadTree.cpp" />
+    <ClCompile Include="src\Terrain\ChunkedTerrainRenderer.cpp" />
     <ClCompile Include="src\Terrain\HeightField.cpp" />
     <ClCompile Include="src\Terrain\HeightMapImage.cpp" />
     <ClCompile Include="src\Terrain\TerrainMeshBuilder.cpp" />
@@ -163,6 +167,10 @@
     <ClInclude Include="src\Game\MenuController.h" />
     <ClInclude Include="src\Engine\Camera.h" />
     <ClInclude Include="src\Graphics\Mesh.h" />
+    <ClInclude Include="src\Core\Frustum.h" />
+    <ClInclude Include="src\Terrain\TerrainChunk.h" />
+    <ClInclude Include="src\Terrain\TerrainQuadTree.h" />
+    <ClInclude Include="src\Terrain\ChunkedTerrainRenderer.h" />
     <ClInclude Include="src\Terrain\HeightField.h" />
     <ClInclude Include="src\Terrain\HeightMapImage.h" />
     <ClInclude Include="src\Terrain\TerrainMeshBuilder.h" />
