@@ -74,6 +74,7 @@ void Graphics::Shutdown()
     m_depthStencilView.Reset();
     m_depthStencilTexture.Reset();
 
+    m_wrapSamplerState.Reset();
     m_backBufferSurface.Reset();
     m_renderTargetView.Reset();
     m_swapChain.Reset();
@@ -449,6 +450,21 @@ bool Graphics::CreateMeshPipeline()
                   L"CreateRasterizerState(wireframe)"))
         return false;
 
+    // ---- 타일링용 샘플러 (S46) ----
+    //  스프라이트용 샘플러는 CLAMP 라 UV 가 1을 넘으면 가장자리가 늘어난다.
+    //  지형 텍스처는 여러 번 반복해야 하므로 WRAP 이 필요하다.
+    D3D11_SAMPLER_DESC wrapDesc = {};
+    wrapDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    wrapDesc.AddressU       = D3D11_TEXTURE_ADDRESS_WRAP;
+    wrapDesc.AddressV       = D3D11_TEXTURE_ADDRESS_WRAP;
+    wrapDesc.AddressW       = D3D11_TEXTURE_ADDRESS_WRAP;
+    wrapDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    wrapDesc.MaxLOD         = D3D11_FLOAT32_MAX;
+
+    if (DX_FAILED(m_device->CreateSamplerState(&wrapDesc, m_wrapSamplerState.GetAddressOf()),
+                  L"CreateSamplerState(wrap)"))
+        return false;
+
     // ---- 터레인 셰이더 ----
     Shader::Desc shaderDesc;
     shaderDesc.vsPath = Paths::Resolve(L"Shaders/TerrainVS.hlsl");
@@ -508,6 +524,7 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
         cb->color = drawParams.color;
         cb->params = drawParams.params;
         cb->heightRange = drawParams.heightRange;
+        cb->splat = drawParams.splat;
 
         // 방향광은 셰이더에서 정규화해 쓰지만, 여기서 미리 맞춰 두면 안전하다.
         XMVECTOR light = XMLoadFloat4(&drawParams.lightDirection);
@@ -534,6 +551,10 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
 
     m_context->VSSetConstantBuffers(0, 1, m_meshConstantBuffer.GetAddressOf());
     m_context->PSSetConstantBuffers(0, 1, m_meshConstantBuffer.GetAddressOf());
+
+    // 스플래팅 레이어 4장을 t0~t3 에 한 번에 바인딩한다.
+    m_context->PSSetShaderResources(0, 4, drawParams.layers);
+    m_context->PSSetSamplers(0, 1, m_wrapSamplerState.GetAddressOf());
 
     // 3) 그리기
     m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);

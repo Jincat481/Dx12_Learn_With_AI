@@ -53,7 +53,11 @@ public:
         DirectX::XMFLOAT4 params{ 0.0f, 0.0f, 0.0f, 0.0f };        // x,y 격자 칸 수 / z 와이어프레임 / w 높이 사용
         DirectX::XMFLOAT4 heightRange{ 0.0f, 1.0f, 0.0f, 0.0f };   // 색상 램프용 최저/최고 높이
         DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.28f };  // xyz 방향 / w 환경광
+        DirectX::XMFLOAT4 splat{ 24.0f, 0.0f, 0.0f, 0.0f };               // x 타일 횟수 / y 스플래팅 on
         bool wireframe = false;
+
+        // 스플래팅 레이어 : 흙 / 풀 / 바위 / 눈 (t0~t3)
+        ID3D11ShaderResourceView* layers[4] = { nullptr, nullptr, nullptr, nullptr };
     };
 
     // 3D 메시 하나를 그린다. 깊이 테스트가 켜진 상태로 그려진다.
@@ -101,6 +105,7 @@ private:
     ComPtr<ID3D11Buffer>            m_meshConstantBuffer;   // b0 : WVP + World + color + params
     ComPtr<ID3D11RasterizerState>   m_rasterSolidState;     // 뒷면 컬링
     ComPtr<ID3D11RasterizerState>   m_rasterWireframeState; // 와이어프레임
+    ComPtr<ID3D11SamplerState>      m_wrapSamplerState;     // 지형 텍스처 타일링용 (WRAP)
     std::shared_ptr<Shader>         m_terrainShader;
 
     DirectX::XMFLOAT4X4 m_view3D{};

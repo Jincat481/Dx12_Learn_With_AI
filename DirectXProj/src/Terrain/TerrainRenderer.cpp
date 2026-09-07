@@ -5,13 +5,41 @@
 #include "Core/Graphics.h"
 #include "Utils/Paths.h"
 #include "Utils/StringUtil.h"
+#include "Graphics/TextureManager.h"
 
 using namespace DirectX;
 
 void TerrainRenderer::Initialize(Graphics* graphics)
 {
     m_graphics = graphics;
+
+    if (m_splatEnabled)
+        LoadSplatLayers();
+
     RebuildMesh();
+}
+
+// 레이어는 TextureManager 캐시를 거치므로 여러 터레인이 같은 장을 공유한다.
+void TerrainRenderer::LoadSplatLayers()
+{
+    static const wchar_t* kLayerPaths[kLayerCount] =
+    {
+        L"Assets/terrain_dirt.png",
+        L"Assets/terrain_grass.png",
+        L"Assets/terrain_rock.png",
+        L"Assets/terrain_snow.png",
+    };
+
+    for (int i = 0; i < kLayerCount; ++i)
+        m_layers[i] = TextureManager::Get().Load(Paths::Resolve(kLayerPaths[i]));
+}
+
+void TerrainRenderer::SetSplattingEnabled(bool enabled)
+{
+    m_splatEnabled = enabled;
+
+    if (enabled && m_graphics)
+        LoadSplatLayers();
 }
 
 void TerrainRenderer::OnDestroy()
@@ -48,11 +76,12 @@ void TerrainRenderer::Regenerate(unsigned seed)
     m_dirty = true;
 }
 
-void TerrainRenderer::SetHeightSourceNoise()
+void TerrainRenderer::SetHeightSourceNoise(float amplitude, float frequency)
 {
     terrain::HeightParams params = m_height.GetParams();
     params.source = terrain::HeightSource::Noise;
-    params.amplitude = 14.0f;
+    params.amplitude = amplitude;
+    params.frequency = frequency;
     m_height.SetParams(params);
     m_dirty = true;
 }
@@ -147,6 +176,16 @@ void TerrainRenderer::Render()
     draw.heightRange = XMFLOAT4(m_heightRange.minY, m_heightRange.maxY, 0.0f, 0.0f);
     draw.wireframe = m_wireframe;
 
+    // 스플래팅 : 와이어프레임일 때는 의미가 없으므로 끈다.
+    const bool splat = m_splatEnabled && !m_wireframe;
+    draw.splat = XMFLOAT4(m_splatTiling, splat ? 1.0f : 0.0f, 0.0f, 0.0f);
+
+    if (splat)
+    {
+        for (int i = 0; i < kLayerCount; ++i)
+            draw.layers[i] = m_layers[i] ? m_layers[i]->GetSRV() : nullptr;
+    }
+
     m_graphics->DrawMesh(m_mesh, transform->GetWorldMatrix(), draw);
 }
 
@@ -159,6 +198,8 @@ void TerrainRenderer::ToJson(json::Value& out) const
     out["cellSize"]  = json::Value(m_desc.cellSize);
     out["uvTiling"]  = json::Value(m_desc.uvTiling);
     out["wireframe"] = json::Value(m_wireframe);
+    out["splatting"]  = json::Value(m_splatEnabled);
+    out["splatTiling"] = json::Value(m_splatTiling);
     out["heightEnabled"] = json::Value(m_heightEnabled);
 
     const terrain::HeightParams& height = m_height.GetParams();
@@ -189,6 +230,8 @@ void TerrainRenderer::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("cellSize"))  m_desc.cellSize = value->AsFloat(m_desc.cellSize);
     if (const json::Value* value = in.Find("uvTiling"))  m_desc.uvTiling = value->AsFloat(m_desc.uvTiling);
     if (const json::Value* value = in.Find("wireframe"))     m_wireframe     = value->AsBool(m_wireframe);
+    if (const json::Value* value = in.Find("splatting"))     m_splatEnabled  = value->AsBool(m_splatEnabled);
+    if (const json::Value* value = in.Find("splatTiling"))   m_splatTiling   = value->AsFloat(m_splatTiling);
     if (const json::Value* value = in.Find("heightEnabled")) m_heightEnabled = value->AsBool(m_heightEnabled);
 
     terrain::HeightParams height = m_height.GetParams();

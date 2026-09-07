@@ -4,6 +4,7 @@
 #include "Graphics/Mesh.h"
 #include "Terrain/TerrainMeshBuilder.h"
 #include "Terrain/HeightField.h"
+#include "Graphics/Texture.h"
 
 class Graphics;
 
@@ -47,9 +48,14 @@ public:
     void Regenerate(unsigned seed);   // 새 seed 로 다시 만든다
 
     // ---- 스텝 3 : 높이맵 이미지 ----
-    void SetHeightSourceNoise();
+    void SetHeightSourceNoise(float amplitude = 14.0f, float frequency = 0.012f);
     void SetHeightSourceImage(const std::wstring& path, float amplitude);
     terrain::HeightSource GetHeightSource() const { return m_height.GetParams().source; }
+
+    // ---- 스텝 4 : 텍스처 스플래팅 ----
+    void SetSplattingEnabled(bool enabled);
+    bool IsSplattingEnabled() const { return m_splatEnabled; }
+    void SetSplatTiling(float tiling) { m_splatTiling = tiling; }
 
     void SetNoiseType(terrain::NoiseType type);
     terrain::NoiseType GetNoiseType() const { return m_height.GetParams().noiseType; }
@@ -60,6 +66,7 @@ public:
 
 private:
     bool RebuildMesh();
+    void LoadSplatLayers();
 
     Graphics* m_graphics = nullptr;
     Mesh      m_mesh;
@@ -71,6 +78,12 @@ private:
     bool m_heightEnabled = true;
     bool m_dirty = true;
     bool m_wireframe = false;
+
+    // 스플래팅 레이어 : 흙 / 풀 / 바위 / 눈
+    static constexpr int kLayerCount = 4;
+    std::shared_ptr<Texture> m_layers[kLayerCount];
+    bool  m_splatEnabled = false;
+    float m_splatTiling = 24.0f;
 
     DirectX::XMFLOAT4 m_color{ 0.30f, 0.42f, 0.34f, 1.0f };        // 지면 색
     DirectX::XMFLOAT4 m_wireColor{ 0.55f, 0.75f, 0.95f, 1.0f };    // 와이어프레임 색

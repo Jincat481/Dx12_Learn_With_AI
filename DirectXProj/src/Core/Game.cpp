@@ -82,7 +82,7 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
     dxutil::DebugLog(L"[Game] 초기화 완료");
     dxutil::DebugLog(L"  [카메라] 우클릭 누른 채 : 마우스 회전 | WASD 이동 | Q,E 상하 | 휠 속도조절");
     dxutil::DebugLog(L"           F : 기본 위치로 리셋");
-    dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 켜기/끄기 | N 새 지형 | P 펄린<->값 노이즈");
+    dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 | N 새 지형 | P 펄린<->값 | B 스플래팅");
     dxutil::DebugLog(L"  [공통] ESC 메뉴로 | H Hierarchy | I Inspector");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
     dxutil::DebugLog(L"  H: Hierarchy 켜기/끄기 | I: Inspector 켜기/끄기");
@@ -141,6 +141,14 @@ void Game::BuildTerrainScene(TerrainMode mode, const std::string& sceneName)
         terrain->SetHeightEnabled(true);
         // 이미지 값은 0~1 이라 노이즈보다 진폭을 크게 줘야 굴곡이 보인다.
         terrain->SetHeightSourceImage(L"Assets/heightmap.png", 26.0f);
+        break;
+
+    case TerrainMode::Splatting:
+        // 스플래팅은 경사도가 있어야 바위 레이어가 드러난다.
+        // 완만한 지형이면 절벽이 없어 바위가 한 픽셀도 안 나온다.
+        terrain->SetHeightEnabled(true);
+        terrain->SetHeightSourceNoise(/*amplitude*/ 34.0f, /*frequency*/ 0.022f);
+        terrain->SetSplattingEnabled(true);
         break;
     }
 }
@@ -233,6 +241,11 @@ void Game::SetupShowcaseList()
         L"터레인 · 스텝 3  높이맵 이미지 지형",
         L"회색조 이미지 → 높이 · 이중선형 보간 · 8비트 양자화 (S41~S42)",
         [this]() { BuildTerrainScene(TerrainMode::Image, "Terrain_Step3"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 4  텍스처 스플래팅",
+        L"경사도 / 높이 기반 4레이어 블렌딩 · UV 타일링 (S44~S47)",
+        [this]() { BuildTerrainScene(TerrainMode::Splatting, "Terrain_Step4"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -591,6 +604,12 @@ void Game::HandleFrameEndCommands()
         {
             terrain->SetHeightEnabled(!terrain->IsHeightEnabled());
             dxutil::DebugLog(L"[Terrain] 높이 %s", terrain->IsHeightEnabled() ? L"켬" : L"끔");
+        }
+
+        if (input.GetKeyDown('B'))          // 스플래팅 켜기/끄기
+        {
+            terrain->SetSplattingEnabled(!terrain->IsSplattingEnabled());
+            dxutil::DebugLog(L"[Terrain] 스플래팅 %s", terrain->IsSplattingEnabled() ? L"켬" : L"끔");
         }
 
         if (input.GetKeyDown('P'))          // 펄린 <-> 값 노이즈
