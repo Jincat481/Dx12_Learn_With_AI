@@ -16,6 +16,7 @@
 
 #include "Terrain/TerrainRenderer.h"
 #include "Editor/MenuScreen.h"
+#include "Game/MenuController.h"
 
 #include "Graphics/ShaderManager.h"
 #include "Graphics/TextureManager.h"
@@ -71,9 +72,10 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
     // 5) 씬 구성
     m_savePath = Paths::ResolveForWrite(L"Saves/scene.json");
 
-    // 5) 메뉴로 시작한다. 씬은 항목을 고른 뒤에 만든다.
-    SetupMenu();
-    m_state = AppState::Menu;
+    // 5) 메뉴도 씬이다. 메뉴 씬을 만들어 시작한다.
+    SetupShowcaseList();
+    BuildMenuScene();
+    SceneManager::Get().Initialize(m_graphics.get());
 
     m_running = true;
 
@@ -101,6 +103,7 @@ void Game::RegisterComponentTypes()
     factory.Register<PlayerController>("PlayerController");
     factory.Register<Camera>("Camera");
     factory.Register<TerrainRenderer>("TerrainRenderer");
+    factory.Register<MenuController>("MenuController");
 }
 
 // -------------------------------------------------------------
@@ -157,45 +160,77 @@ int Game::Run()
     if (!m_running)
         return -1;
 
+    TimeManager& time = TimeManager::Get();
+    InputManager& input = InputManager::Get();
+    SceneManager& sceneManager = SceneManager::Get();
+
+    // ---- 게임 루프 ----
+    //  메뉴도 하나의 씬이라 분기가 없다. 항상 같은 순서로 돈다.
     while (m_window->ProcessMessages())        // 1. 메시지 처리
     {
-        TimeManager::Get().Update();
-        InputManager::Get().Update();          // 2. 입력 갱신
+        time.Update();
+        input.Update();                        // 2. 입력 갱신
 
-        if (m_state == AppState::Menu)
-            UpdateMenuFrame();
-        else
-            UpdateShowcaseFrame();
+        UpdateEditorUI();                      //    Hierarchy / Inspector (쇼케이스에서만)
+        UpdatePickingAndDrag();                //    피킹 / 드래그 (쇼케이스에서만)
+
+#if HOT_RELOAD_ENABLED
+        ShaderManager::Get().Update(time.GetDeltaTime());
+#endif
+
+        sceneManager.Update();                 // 3. 씬 Update (메뉴도 여기서 돈다)
+
+        m_graphics->BeginFrame();              // 4. 화면 Clear
+        sceneManager.Render();                 // 5. 씬 Render
+        DrawOverlayUI();                       //    메뉴 / 에디터 패널 오버레이
+        m_graphics->EndFrame();                // 6. Present
+
+        sceneManager.ProcessPendingChanges();  // 7. 추가/삭제 일괄 반영
+        HandleFrameEndCommands();              // 8. 저장/로드 등
+        ProcessPendingSceneChange();           // 9. 씬 전환은 가장 마지막에
+        UpdateWindowTitle();
     }
 
     return 0;
 }
 
 // -------------------------------------------------------------
-// 메뉴 상태 : 씬을 돌리지 않고 메뉴만 그린다.
+// 메뉴에 올릴 목록.
+//  스텝이 늘어나면 여기에 push_back 한 줄만 더하면 된다.
 // -------------------------------------------------------------
-void Game::SetupMenu()
+void Game::SetupShowcaseList()
 {
     m_showcases.clear();
 
-    // ---- 터레인 쇼케이스 : 스텝별로 하나씩 ----
     m_showcases.push_back({
         L"터레인 · 스텝 1  평면 그리드",
         L"격자 메시 생성 · 원근 카메라 · 깊이 버퍼 (S27~S35)",
         [this]() { BuildTerrainScene(/*heightEnabled*/ false, "Terrain_Step1"); } });
 
     m_showcases.push_back({
-        L"터레인 · 스텝 2  하이트맵 지형",
+        L"터레인 · 스텝 2  펄린 노이즈 지형",
         L"펄린 노이즈 fBm · 중앙 차분 법선 · 램버트 조명 (S36~S40)",
         [this]() { BuildTerrainScene(/*heightEnabled*/ true, "Terrain_Step2"); } });
 
-    // ---- 그 밖의 기능 ----
     m_showcases.push_back({
         L"2D 스프라이트 데모",
         L"계층 Transform · 피킹 · 드래그 · Hierarchy / Inspector",
         [this]() { BuildSpriteDemoScene(); } });
+}
 
-    // 메뉴 항목 = 쇼케이스 목록 + 종료
+// -------------------------------------------------------------
+// 메인 메뉴 씬.
+//  Scene 을 상속하지 않는다. 평범한 씬에 MenuController 를 붙일 뿐이다.
+// -------------------------------------------------------------
+void Game::BuildMenuScene()
+{
+    Scene* scene = SceneManager::Get().CreateScene("MainMenu");
+    if (!scene)
+        return;
+
+    GameObject* root = scene->CreateGameObject("MenuRoot");
+    MenuController* menu = root->AddComponent<MenuController>();
+
     std::vector<MenuScreen::Entry> entries;
     entries.reserve(m_showcases.size() + 1);
 
@@ -204,39 +239,44 @@ void Game::SetupMenu()
 
     entries.push_back({ L"종료", L"프로그램을 끝낸다" });
 
-    m_menu.SetEntries(std::move(entries));
+    menu->SetEntries(std::move(entries));
+
+    // 고른 순간에는 요청만 남긴다. 실제 전환은 프레임 끝에.
+    menu->SetOnSelect([this](int index) { RequestScene(index); });
+
+    m_currentShowcase = kMenuScene;
+    m_showEditorPanels = false;
+    m_selectedId = 0;
+    m_dragging = false;
 }
 
-void Game::UpdateMenuFrame()
+void Game::RequestScene(int index)
 {
-    InputManager& input = InputManager::Get();
+    m_pendingScene = index;
+}
 
-    const int choice = m_menu.Update(input, m_graphics->GetWidth(), m_graphics->GetHeight());
+// -------------------------------------------------------------
+// 씬 전환은 Update / Render 가 모두 끝난 뒤에만 한다.
+//  순회 중에 씬을 파괴하면 그 씬의 컴포넌트가 자기 발밑을 무너뜨린다.
+// -------------------------------------------------------------
+void Game::ProcessPendingSceneChange()
+{
+    if (m_pendingScene == kNoRequest)
+        return;
 
-    m_graphics->BeginFrame();
-    if (HDC hdc = m_graphics->BeginOverlay())
+    const int request = m_pendingScene;
+    m_pendingScene = kNoRequest;
+
+    if (request == kMenuScene)
     {
-        m_menu.Draw(hdc, m_graphics->GetWidth(), m_graphics->GetHeight());
-        m_graphics->EndOverlay();
-    }
-    m_graphics->EndFrame();
-
-    if (input.GetKeyDown(VK_ESCAPE))
-    {
-        ::PostQuitMessage(0);
+        BuildMenuScene();
+        SceneManager::Get().Initialize(m_graphics.get());
+        dxutil::DebugLog(L"[Game] 메뉴 씬으로");
         return;
     }
 
-    if (choice != MenuScreen::kNoSelection)
-        EnterShowcase(choice);
-
-    UpdateWindowTitle();
-}
-
-void Game::EnterShowcase(int index)
-{
     // 목록 범위를 넘어가면 마지막 항목(종료)이다.
-    if (index < 0 || index >= static_cast<int>(m_showcases.size()))
+    if (request < 0 || request >= static_cast<int>(m_showcases.size()))
     {
         ::PostQuitMessage(0);
         return;
@@ -244,56 +284,14 @@ void Game::EnterShowcase(int index)
 
     m_selectedId = 0;
     m_dragging = false;
-    m_currentShowcase = index;
+    m_currentShowcase = request;
+    m_showEditorPanels = true;
 
-    m_showcases[index].build();
-
+    m_showcases[request].build();
     SceneManager::Get().Initialize(m_graphics.get());
-    m_state = AppState::Showcase;
 
     dxutil::DebugLog(L"[Game] 쇼케이스 진입 : %s (ESC 로 메뉴 복귀)",
-                     m_showcases[index].title.c_str());
-}
-
-void Game::ReturnToMenu()
-{
-    m_selectedId = 0;
-    m_dragging = false;
-    m_currentShowcase = -1;
-
-    SceneManager::Get().Shutdown();
-    m_state = AppState::Menu;
-
-    dxutil::DebugLog(L"[Game] 메뉴로 복귀");
-}
-
-// -------------------------------------------------------------
-// 쇼케이스 상태 : 기존 게임 루프 그대로.
-//   입력 갱신 → 에디터 UI → 피킹 → 씬 Update
-//   → BeginFrame → 씬 Render → 오버레이 → EndFrame → 프레임 끝 정리
-// -------------------------------------------------------------
-void Game::UpdateShowcaseFrame()
-{
-    TimeManager& time = TimeManager::Get();
-    SceneManager& sceneManager = SceneManager::Get();
-
-    UpdateEditorUI();                      // Hierarchy / Inspector
-    UpdatePickingAndDrag();                // 피킹 / 하이라이트 / 드래그
-
-#if HOT_RELOAD_ENABLED
-    ShaderManager::Get().Update(time.GetDeltaTime());
-#endif
-
-    sceneManager.Update();
-
-    m_graphics->BeginFrame();
-    sceneManager.Render();
-    DrawEditorUI();
-    m_graphics->EndFrame();
-
-    sceneManager.ProcessPendingChanges();
-    HandleFrameEndCommands();
-    UpdateWindowTitle();
+                     m_showcases[request].title.c_str());
 }
 
 GameObject* Game::GetSelectedObject() const
@@ -312,6 +310,9 @@ GameObject* Game::GetSelectedObject() const
 // -------------------------------------------------------------
 void Game::UpdateEditorUI()
 {
+    if (!m_showEditorPanels)
+        return;    // 메뉴 씬에서는 패널을 띄우지 않는다
+
     Scene* scene = SceneManager::Get().GetActiveScene();
     if (!scene || !m_graphics)
         return;
@@ -341,18 +342,34 @@ void Game::UpdateEditorUI()
     input.SetTextCaptureActive(m_inspector.IsEditing());
 }
 
-void Game::DrawEditorUI()
+void Game::DrawOverlayUI()
 {
     if (!m_graphics)
         return;
 
-    // 오버레이 DC 는 프레임당 한 번만 잡고 두 패널이 나눠 쓴다.
+    // 오버레이 DC 는 프레임당 한 번만 잡고 모두가 나눠 쓴다.
     HDC hdc = m_graphics->BeginOverlay();
     if (!hdc)
         return;
 
-    m_hierarchy.Draw(hdc, m_selectedId);
-    m_inspector.Draw(hdc);
+    // 씬 안의 UI 컴포넌트(메뉴)를 먼저 그린다.
+    if (Scene* scene = SceneManager::Get().GetActiveScene())
+    {
+        for (const auto& object : scene->GetGameObjects())
+        {
+            if (!object || object->IsPendingDestroy())
+                continue;
+
+            if (MenuController* menu = object->GetComponent<MenuController>())
+                menu->DrawOverlay(hdc);
+        }
+    }
+
+    if (m_showEditorPanels)
+    {
+        m_hierarchy.Draw(hdc, m_selectedId);
+        m_inspector.Draw(hdc);
+    }
 
     m_graphics->EndOverlay();
 }
@@ -401,6 +418,9 @@ void Game::ApplyReparent(uint64_t dragId, uint64_t newParentId)
 // -------------------------------------------------------------
 void Game::UpdatePickingAndDrag()
 {
+    if (!m_showEditorPanels)
+        return;    // 메뉴 씬에는 고를 스프라이트가 없다
+
     Scene* scene = SceneManager::Get().GetActiveScene();
     if (!scene || !m_graphics)
         return;
@@ -508,12 +528,18 @@ void Game::HandleFrameEndCommands()
     if (!scene)
         return;
 
-    // ESC : 메뉴로 복귀 (인스펙터 편집 중이면 Esc 는 편집 취소로 이미 쓰였다)
+    // ESC : 쇼케이스면 메뉴로, 메뉴에서 누르면 종료
     if (input.GetKeyDown(VK_ESCAPE) && !m_inspector.IsEditing())
     {
-        ReturnToMenu();
+        if (m_currentShowcase == kMenuScene)
+            ::PostQuitMessage(0);
+        else
+            RequestScene(kMenuScene);
         return;
     }
+
+    if (!m_showEditorPanels)
+        return;    // 아래는 쇼케이스 전용
 
     // F5 : 저장
     if (input.GetKeyDown(VK_F5))
@@ -615,12 +641,9 @@ void Game::UpdateWindowTitle()
             selectedName = selected->GetName();
     }
 
-    const wchar_t* showcaseName = L"메뉴";
-    if (m_state == AppState::Showcase &&
-        m_currentShowcase >= 0 && m_currentShowcase < static_cast<int>(m_showcases.size()))
-    {
+    const wchar_t* showcaseName = L"메인 메뉴";
+    if (m_currentShowcase >= 0 && m_currentShowcase < static_cast<int>(m_showcases.size()))
         showcaseName = m_showcases[m_currentShowcase].title.c_str();
-    }
 
     wchar_t title[320];
     _snwprintf_s(title, _countof(title), _TRUNCATE,

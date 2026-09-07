@@ -1,92 +1,34 @@
 #include "Core/stdafx.h"
 #include "Graphics/Texture.h"
 
-#include <wincodec.h>
+#include "Graphics/WicLoader.h"
 
 using namespace DirectX;
-
-namespace
-{
-    // WIC 팩토리는 프로세스에 하나만 두면 충분하다. (COM 초기화는 Game 에서 수행)
-    //
-    // 주의 : 이것을 함수 지역 static ComPtr 로 두면 안 된다.
-    //   CRT 의 정적 소멸은 CoUninitialize() 보다 뒤에 일어나므로,
-    //   그 시점의 Release() 는 이미 내려간 COM 객체를 건드려
-    //   wrl/client.h 의 InternalRelease() 안에서 액세스 위반을 낸다.
-    //   그래서 Texture::ShutdownWIC() 로 수명을 명시적으로 끊는다.
-    ComPtr<IWICImagingFactory> g_wicFactory;
-
-    IWICImagingFactory* GetWICFactory()
-    {
-        if (!g_wicFactory)
-        {
-            const HRESULT hr = ::CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                                  IID_PPV_ARGS(g_wicFactory.GetAddressOf()));
-            if (!DX_CHECK(hr, L"CoCreateInstance(WICImagingFactory)"))
-                return nullptr;
-        }
-        return g_wicFactory.Get();
-    }
-}
-
-void Texture::ShutdownWIC()
-{
-    // CoUninitialize() 보다 반드시 먼저 호출되어야 한다.
-    g_wicFactory.Reset();
-}
 
 bool Texture::LoadFromFile(ID3D11Device* device, const std::wstring& path)
 {
     if (!device)
         return false;
 
-    IWICImagingFactory* factory = GetWICFactory();
-    if (!factory)
+    std::vector<uint8_t> pixels;
+    UINT width = 0;
+    UINT height = 0;
+
+    if (!wic::LoadPixelsRGBA(path, pixels, width, height))
         return false;
 
-    // 1) 디코더 생성
-    ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
-                                                    WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf());
-    if (FAILED(hr))
-    {
-        dxutil::DebugLog(L"[Texture] 이미지를 열 수 없다 : %s (0x%08X)", path.c_str(), static_cast<unsigned>(hr));
-        return false;
-    }
-
-    // 2) 첫 프레임 가져오기
-    ComPtr<IWICBitmapFrameDecode> frame;
-    if (DX_FAILED(decoder->GetFrame(0, frame.GetAddressOf()), L"IWICBitmapDecoder::GetFrame"))
-        return false;
-
-    // 3) 포맷을 32bpp RGBA 로 통일한다(D3D 의 R8G8B8A8_UNORM 과 대응).
-    ComPtr<IWICFormatConverter> converter;
-    if (DX_FAILED(factory->CreateFormatConverter(converter.GetAddressOf()), L"CreateFormatConverter"))
-        return false;
-
-    if (DX_FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
-                                        WICBitmapDitherTypeNone, nullptr, 0.0,
-                                        WICBitmapPaletteTypeCustom), L"IWICFormatConverter::Initialize"))
-        return false;
-
-    UINT width = 0, height = 0;
-    if (DX_FAILED(converter->GetSize(&width, &height), L"IWICFormatConverter::GetSize"))
-        return false;
-
-    // 4) CPU 메모리로 픽셀을 복사한다. stride = 가로 픽셀 수 * 4바이트
-    const UINT rowPitch = width * 4;
-    const UINT imageSize = rowPitch * height;
-
-    std::vector<uint8_t> pixels(imageSize);
-    if (DX_FAILED(converter->CopyPixels(nullptr, rowPitch, imageSize, pixels.data()), L"IWICFormatConverter::CopyPixels"))
-        return false;
-
-    if (!CreateFromPixels(device, pixels.data(), width, height, rowPitch))
+    if (!CreateFromPixels(device, pixels.data(), width, height, width * 4))
         return false;
 
     m_path = path;
     dxutil::DebugLog(L"[Texture] 로드 완료 : %s (%ux%u)", path.c_str(), width, height);
     return true;
+}
+
+void Texture::ShutdownWIC()
+{
+    // CoUninitialize() 보다 반드시 먼저 호출되어야 한다.
+    wic::Shutdown();
 }
 
 bool Texture::CreateCheckerboard(ID3D11Device* device, UINT width, UINT height, UINT cellSize,

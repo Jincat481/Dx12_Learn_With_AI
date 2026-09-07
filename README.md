@@ -93,12 +93,17 @@ DirectXProj/
 
 | 스텝 | 내용 | 상태 |
 | --- | --- | --- |
-| 1 | 평면 그리드 메시 + 원근 카메라 + 깊이 버퍼 | **완료** |
-| 2 | 펄린 노이즈 하이트맵, 법선 계산, 높이 색상 램프 | **완료** |
-| 3 | 텍스처 스플래팅(레이어 블렌딩) | 예정 |
-| 4 | 조명 (Directional + 그림자) | 예정 |
-| 5 | 청크 분할과 LOD | 예정 |
-| 6 | 지형 편집 브러시 | 예정 |
+| 1 | 기본 평면 그리드 (Basic Flat Grid) | **완료** |
+| 2 | 펄린 노이즈 지형 (Perlin Noise) | **완료** |
+| 3 | 높이맵 이미지 지형 (HeightMap) | 작업 중 |
+| 4 | 텍스처 스플래팅 — 경사도/높이 기반 (Texture Splatting) | 예정 |
+| 5 | 쿼드트리 컬링 (QuadTree Culling) | 예정 |
+| 6 | 거리 기반 LOD 지형 (Distance LOD) | 예정 |
+| 6-2 | 고급 LOD — 스티칭 & 지오모핑 | 예정 |
+| 7 | 하드웨어 테셀레이션 (Tessellation) | 예정 |
+| 8 | 스카이맵 (SkyDome / SkyBox) | 예정 |
+| 9 | 동적 왜곡 구름 (Perturbed Clouds) | 예정 |
+| 10 | 무한 지형 청크 (Infinite Chunks) | 예정 |
 
 ### 스텝 1 에서 알아야 할 키워드
 
@@ -142,7 +147,9 @@ DirectXProj/
 - **드래그는 계층을 건드리지 않는다** — 그냥 드래그하면 부모-자식 관계가 그대로 유지된다(에디터의 일반적인 동작). 자식으로 남아 있으므로 이후 부모가 회전·이동하면 함께 끌려가는데, 이는 계층 구조상 맞는 동작이다.
 - **계층 변경은 Hierarchy 패널에서만** — 씬 드래그는 이동 전용이고, 부모를 바꾸는 것은 Hierarchy에서 줄을 끌어다 놓을 때뿐이다. 되돌릴 수 없는 조작을 우연히 일으키지 않게 분리했다. 재부모화는 `SetParent(newParent, worldPositionStays: true)`라 화면에 보이는 위치·회전·크기가 그대로 유지된다.
 - **에디터 UI는 GDI 오버레이** — 백버퍼를 `DXGI_FORMAT_B8G8R8A8_UNORM` + `DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE`로 만들고 `IDXGISurface1::GetDC`로 DC를 빌려 씬 위에 직접 그린다. 폰트 텍스처나 텍스트 렌더링 파이프라인이 따로 필요 없고 한글 이름도 그대로 나온다. DC는 프레임당 한 번만 잡아 두 패널이 나눠 쓴다.
-- **메뉴와 쇼케이스는 별개 상태** — `Game` 이 `AppState::Menu` / `Showcase` 두 상태를 오간다. 메뉴 상태에서는 씬을 아예 돌리지 않고 오버레이만 그린다. 항목을 고를 때 씬을 만들고, ESC 로 나올 때 `SceneManager::Shutdown` 으로 정리한다.
+- **메인 메뉴도 하나의 씬** — `Scene` 을 상속하지 않는다. `MainMenu` 씬에 `MenuRoot` 오브젝트를 두고 `MenuController` 컴포넌트를 붙일 뿐이다. 이 엔진의 확장 방식이 상속이 아니라 합성이기 때문이다. 덕분에 `AppState` 같은 분기가 사라지고 게임 루프가 한 갈래로 통일됐다. 메뉴 배경에 지형이나 스프라이트를 띄우고 싶으면 GameObject 를 더하면 된다.
+- **씬 전환은 프레임 끝에** — 메뉴 항목을 고른 그 자리에서 씬을 바꾸면 지금 `Update` 를 돌고 있는 `MenuController` 자신이 파괴된다. 그래서 선택은 콜백으로 **요청만 남기고**(`RequestScene`), 실제 전환은 렌더까지 끝난 뒤 `ProcessPendingSceneChange` 에서 한다. `Scene::Load` 를 프레임 끝으로 미룬 것과 같은 이유다.
+- **오버레이 DC 는 프레임당 하나** — GDI 오버레이는 `Graphics::BeginOverlay` 로 한 번만 잡고 메뉴·Hierarchy·Inspector 가 나눠 쓴다. 그래서 `MenuController` 는 `Render()` 가 아니라 `DrawOverlay(hdc)` 를 통해 그린다.
 - **메뉴는 데이터 기반** — 항목을 `{ 제목, 설명, 씬 구성 람다 }` 목록(`m_showcases`)으로 들고 있고 메뉴 화면은 그 목록을 그릴 뿐이다. 스텝이 늘어나면 `Game::SetupMenu()` 에 `push_back` 한 줄만 더하면 된다. 분기문(`if index == 0`)이 없으므로 항목이 늘어도 진입 코드는 그대로다.
 - **카메라는 Transform 을 소유한다** — 궤도 파라미터(타깃·거리·yaw·pitch)로 눈 위치를 계산한 뒤 **매 프레임 자기 GameObject 의 Transform 에 써 넣는다.** 그래서 Inspector 에 실제 카메라 위치가 보인다. 반대로 Inspector 에서 위치를 고치면, 마지막으로 써 넣은 값과 달라진 것을 감지해 거리·각도를 거꾸로 계산한다(양방향 동기화).
 - **노이즈는 갈아 끼울 수 있게** — `HeightParams::noiseType` 하나로 펄린/값 노이즈를 고른다. fBm 은 어느 쪽이든 그대로 얹히므로 `BaseNoise()` 한 곳만 분기한다. 알고리즘 차이를 실행 중에 눈으로 비교할 수 있어야 왜 펄린을 쓰는지 납득이 된다.

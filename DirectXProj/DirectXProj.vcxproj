@@ -108,6 +108,7 @@
     <ClCompile Include="src\Engine\ComponentFactory.cpp" />
     <ClCompile Include="src\Engine\Picker.cpp" />
     <ClCompile Include="src\Graphics\Vertex.cpp" />
+    <ClCompile Include="src\Graphics\WicLoader.cpp" />
     <ClCompile Include="src\Graphics\Texture.cpp" />
     <ClCompile Include="src\Graphics\TextureManager.cpp" />
     <ClCompile Include="src\Graphics\Shader.cpp" />
@@ -118,6 +119,7 @@
     <ClCompile Include="src\Utils\IdGenerator.cpp" />
     <ClCompile Include="src\Utils\Paths.cpp" />
     <ClCompile Include="src\Game\PlayerController.cpp" />
+    <ClCompile Include="src\Game\MenuController.cpp" />
     <ClCompile Include="src\Engine\Camera.cpp" />
     <ClCompile Include="src\Graphics\Mesh.cpp" />
     <ClCompile Include="src\Terrain\HeightField.cpp" />
@@ -145,6 +147,7 @@
     <ClInclude Include="src\Engine\ComponentFactory.h" />
     <ClInclude Include="src\Engine\Picker.h" />
     <ClInclude Include="src\Graphics\Vertex.h" />
+    <ClInclude Include="src\Graphics\WicLoader.h" />
     <ClInclude Include="src\Graphics\Texture.h" />
     <ClInclude Include="src\Graphics\TextureManager.h" />
     <ClInclude Include="src\Graphics\Shader.h" />
@@ -155,6 +158,7 @@
     <ClInclude Include="src\Utils\IdGenerator.h" />
     <ClInclude Include="src\Utils\Paths.h" />
     <ClInclude Include="src\Game\PlayerController.h" />
+    <ClInclude Include="src\Game\MenuController.h" />
     <ClInclude Include="src\Engine\Camera.h" />
     <ClInclude Include="src\Graphics\Mesh.h" />
     <ClInclude Include="src\Terrain\HeightField.h" />

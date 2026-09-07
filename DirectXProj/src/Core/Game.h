@@ -2,7 +2,6 @@
 #include "Core/stdafx.h"
 #include "Editor/HierarchyPanel.h"
 #include "Editor/InspectorPanel.h"
-#include "Editor/MenuScreen.h"
 
 class Window;
 class Graphics;
@@ -41,14 +40,18 @@ private:
         std::function<void()> build;
     };
 
-    void SetupMenu();
-    void EnterShowcase(int index);     // 메뉴에서 고른 항목으로 들어간다
-    void ReturnToMenu();
-    void UpdateMenuFrame();            // 메뉴 상태의 한 프레임
-    void UpdateShowcaseFrame();        // 쇼케이스 상태의 한 프레임
+    void SetupShowcaseList();          // 메뉴에 올릴 목록을 만든다
+    void BuildMenuScene();             // 메인 메뉴도 그냥 하나의 씬이다
+
+    // 씬 전환 요청. 순회 중에 씬을 갈아엎으면 안 되므로 프레임 끝에 처리한다.
+    void RequestScene(int index);      // kMenuScene = 메뉴, 0 이상 = 쇼케이스
+    void ProcessPendingSceneChange();
+
+    static constexpr int kNoRequest = -2;
+    static constexpr int kMenuScene = -1;
     void UpdatePickingAndDrag();       // 마우스 피킹 / 선택 하이라이트 / 드래그 이동
     void UpdateEditorUI();             // Hierarchy / Inspector 입력 처리
-    void DrawEditorUI();               // 두 패널을 한 번의 GDI 오버레이로 그린다
+    void DrawOverlayUI();              // 메뉴 + 에디터 패널을 한 번의 GDI 오버레이로 그린다
     void ApplyReparent(uint64_t dragId, uint64_t newParentId);
     GameObject* GetSelectedObject() const;
     void HandleFrameEndCommands();     // 저장/로드처럼 프레임 경계에서만 안전한 작업
@@ -60,12 +63,13 @@ private:
     bool m_comInitialized = false;
     bool m_running = false;
 
-    // 앱 상태 : 메뉴에서 기능을 고르고 들어갔다가 ESC 로 돌아온다.
-    enum class AppState { Menu, Showcase };
-    AppState   m_state = AppState::Menu;
-    MenuScreen m_menu;
     std::vector<Showcase> m_showcases;
-    int        m_currentShowcase = -1;
+
+    // 메뉴도 씬이라 별도 상태 enum 이 없다.
+    //  m_currentShowcase == kMenuScene 이면 지금 보고 있는 씬이 메뉴다.
+    int  m_currentShowcase = kMenuScene;
+    int  m_pendingScene = kNoRequest;
+    bool m_showEditorPanels = false;   // 메뉴 씬에서는 Hierarchy / Inspector 를 숨긴다
 
     std::wstring m_savePath;
     float m_titleTimer = 0.0f;
