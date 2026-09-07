@@ -46,6 +46,21 @@ void TerrainRenderer::Regenerate(unsigned seed)
     m_dirty = true;
 }
 
+void TerrainRenderer::SetNoiseType(terrain::NoiseType type)
+{
+    terrain::HeightParams params = m_height.GetParams();
+    params.noiseType = type;
+    m_height.SetParams(params);
+    m_dirty = true;
+}
+
+void TerrainRenderer::ToggleNoiseType()
+{
+    SetNoiseType(GetNoiseType() == terrain::NoiseType::Perlin
+                 ? terrain::NoiseType::Value
+                 : terrain::NoiseType::Perlin);
+}
+
 bool TerrainRenderer::RebuildMesh()
 {
     m_dirty = false;
@@ -110,6 +125,7 @@ void TerrainRenderer::ToJson(json::Value& out) const
     out["heightEnabled"] = json::Value(m_heightEnabled);
 
     const terrain::HeightParams& height = m_height.GetParams();
+    out["noiseType"]   = json::Value(std::string(height.noiseType == terrain::NoiseType::Perlin ? "perlin" : "value"));
     out["seed"]        = json::Value(static_cast<uint64_t>(height.seed));
     out["frequency"]   = json::Value(height.frequency);
     out["amplitude"]   = json::Value(height.amplitude);
@@ -137,6 +153,8 @@ void TerrainRenderer::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("heightEnabled")) m_heightEnabled = value->AsBool(m_heightEnabled);
 
     terrain::HeightParams height = m_height.GetParams();
+    if (const json::Value* value = in.Find("noiseType"))
+        height.noiseType = (value->AsString("perlin") == "value") ? terrain::NoiseType::Value : terrain::NoiseType::Perlin;
     if (const json::Value* value = in.Find("seed"))        height.seed        = static_cast<unsigned>(value->AsUInt64(height.seed));
     if (const json::Value* value = in.Find("frequency"))   height.frequency   = value->AsFloat(height.frequency);
     if (const json::Value* value = in.Find("amplitude"))   height.amplitude   = value->AsFloat(height.amplitude);

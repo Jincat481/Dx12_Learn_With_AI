@@ -79,7 +79,7 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
 
     dxutil::DebugLog(L"[Game] 초기화 완료");
     dxutil::DebugLog(L"  [터레인] 가운데버튼 드래그 궤도회전 | 휠 줌 | WASD 이동 | Q,E 높이 | F 리셋 | G 와이어프레임");
-    dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 켜기/끄기 | N 새 지형");
+    dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 켜기/끄기 | N 새 지형 | P 펄린<->값 노이즈");
     dxutil::DebugLog(L"  [공통] ESC 메뉴로 | H Hierarchy | I Inspector");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
     dxutil::DebugLog(L"  H: Hierarchy 켜기/끄기 | I: Inspector 켜기/끄기");
@@ -186,7 +186,7 @@ void Game::SetupMenu()
 
     m_showcases.push_back({
         L"터레인 · 스텝 2  하이트맵 지형",
-        L"fBm 노이즈 높이 · 중앙 차분 법선 · 램버트 조명 (S36~S40)",
+        L"펄린 노이즈 fBm · 중앙 차분 법선 · 램버트 조명 (S36~S40)",
         [this]() { BuildTerrainScene(/*heightEnabled*/ true, "Terrain_Step2"); } });
 
     // ---- 그 밖의 기능 ----
@@ -546,6 +546,13 @@ void Game::HandleFrameEndCommands()
         {
             terrain->SetHeightEnabled(!terrain->IsHeightEnabled());
             dxutil::DebugLog(L"[Terrain] 높이 %s", terrain->IsHeightEnabled() ? L"켬" : L"끔");
+        }
+
+        if (input.GetKeyDown('P'))          // 펄린 <-> 값 노이즈
+        {
+            terrain->ToggleNoiseType();
+            dxutil::DebugLog(L"[Terrain] 노이즈 : %s",
+                             terrain->GetNoiseType() == terrain::NoiseType::Perlin ? L"펄린(그래디언트)" : L"값(value)");
         }
 
         if (input.GetKeyDown('N'))          // 새 지형 생성

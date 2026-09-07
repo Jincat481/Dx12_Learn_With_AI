@@ -16,8 +16,20 @@
 // =============================================================
 namespace terrain
 {
+    // 어떤 기본 노이즈를 쓸지. (S37)
+    //  Value  : 격자점에 "값"을 두고 보간한다. 구현이 쉽지만 덩어리져 보이고
+    //           격자축을 따라 무늬가 도드라진다.
+    //  Perlin : 격자점에 "기울기(그래디언트)"를 두고 거리 벡터와 내적한다.
+    //           격자점에서 값이 항상 0이라 규칙적인 얼룩이 덜 생기고 능선이 자연스럽다.
+    enum class NoiseType
+    {
+        Value,
+        Perlin,
+    };
+
     struct HeightParams
     {
+        NoiseType noiseType = NoiseType::Perlin;
         unsigned seed = 1337;
         float frequency = 0.012f;    // 낮을수록 지형이 완만하고 넓다
         float amplitude = 14.0f;     // 최대 높이(월드 단위)
@@ -44,7 +56,9 @@ namespace terrain
         DirectX::XMFLOAT3 SampleNormal(float x, float z, float step) const;
 
     private:
+        float BaseNoise(float x, float z) const;    // 설정에 따라 아래 둘 중 하나를 부른다
         float ValueNoise(float x, float z) const;
+        float PerlinNoise(float x, float z) const;
         float FractalNoise(float x, float z) const;
 
         HeightParams m_params;

@@ -29,6 +29,23 @@ namespace terrain
             return t * t * (3.0f - 2.0f * t);
         }
 
+        // 펄린이 쓰는 fade 곡선 : 6t^5 - 15t^4 + 10t^3
+        //  smoothstep 과 달리 2차 미분까지 0 이라, 격자 경계에서 법선이 튀지 않는다.
+        //  터레인처럼 기울기(법선)를 쓰는 경우에 차이가 눈에 보인다.
+        float Fade(float t)
+        {
+            return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+        }
+
+        // 격자점마다 방향(단위 벡터) 하나를 정한다.
+        void LatticeGradient(int x, int z, unsigned seed, float& gx, float& gz)
+        {
+            // HashLattice 는 -1~1 이므로 각도로 펴 준다.
+            const float angle = (HashLattice(x, z, seed) + 1.0f) * 3.14159265f;
+            gx = std::cos(angle);
+            gz = std::sin(angle);
+        }
+
         float Lerp(float a, float b, float t)
         {
             return a + (b - a) * t;
@@ -58,6 +75,57 @@ namespace terrain
     }
 
     // -------------------------------------------------------------
+    // 펄린(그래디언트) 노이즈 (S37)
+    //  격자점에 값이 아니라 "기울기 방향" 을 두고,
+    //  그 점에서 현재 위치까지의 거리 벡터와 내적한다.
+    //
+    //  격자점 자리에서는 거리 벡터가 0 이라 값도 항상 0 이 된다.
+    //  그래서 값 노이즈처럼 격자점마다 극값이 생기지 않고,
+    //  능선과 골짜기가 격자축에 덜 얽매인 모양으로 나온다.
+    // -------------------------------------------------------------
+    float HeightField::PerlinNoise(float x, float z) const
+    {
+        const float fx = std::floor(x);
+        const float fz = std::floor(z);
+
+        const int xi = static_cast<int>(fx);
+        const int zi = static_cast<int>(fz);
+
+        const float xf = x - fx;   // 셀 안에서의 위치 0~1
+        const float zf = z - fz;
+
+        // 네 모서리의 그래디언트와, 각 모서리에서 현재 위치까지의 거리 벡터를 내적한다.
+        float gx = 0.0f, gz = 0.0f;
+
+        LatticeGradient(xi,     zi,     m_params.seed, gx, gz);
+        const float d00 = gx * xf + gz * zf;
+
+        LatticeGradient(xi + 1, zi,     m_params.seed, gx, gz);
+        const float d10 = gx * (xf - 1.0f) + gz * zf;
+
+        LatticeGradient(xi,     zi + 1, m_params.seed, gx, gz);
+        const float d01 = gx * xf + gz * (zf - 1.0f);
+
+        LatticeGradient(xi + 1, zi + 1, m_params.seed, gx, gz);
+        const float d11 = gx * (xf - 1.0f) + gz * (zf - 1.0f);
+
+        const float u = Fade(xf);
+        const float v = Fade(zf);
+
+        const float value = Lerp(Lerp(d00, d10, u), Lerp(d01, d11, u), v);
+
+        // 2D 펄린의 이론적 범위는 약 ±0.707 이다. -1~1 로 맞춰 준다.
+        return value * 1.4142f;
+    }
+
+    float HeightField::BaseNoise(float x, float z) const
+    {
+        return (m_params.noiseType == NoiseType::Perlin)
+             ? PerlinNoise(x, z)
+             : ValueNoise(x, z);
+    }
+
+    // -------------------------------------------------------------
     // fBm : 주파수를 키우고 진폭을 줄이며 여러 층을 더한다.
     // -------------------------------------------------------------
     float HeightField::FractalNoise(float x, float z) const
@@ -71,7 +139,7 @@ namespace terrain
 
         for (int i = 0; i < octaves; ++i)
         {
-            total += ValueNoise(x * frequency, z * frequency) * amplitude;
+            total += BaseNoise(x * frequency, z * frequency) * amplitude;
             normalizer += amplitude;
 
             amplitude *= m_params.persistence;

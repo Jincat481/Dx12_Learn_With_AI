@@ -46,6 +46,10 @@ public:
 
     void Regenerate(unsigned seed);   // 새 seed 로 다시 만든다
 
+    void SetNoiseType(terrain::NoiseType type);
+    terrain::NoiseType GetNoiseType() const { return m_height.GetParams().noiseType; }
+    void ToggleNoiseType();
+
     UINT GetVertexCount()   const { return m_mesh.GetVertexCount(); }
     UINT GetTriangleCount() const { return m_mesh.GetIndexCount() / 3; }
 
