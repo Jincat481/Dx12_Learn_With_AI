@@ -6,6 +6,8 @@
 #include "Graphics/TextureManager.h"
 #include "Utils/Paths.h"
 
+#include <limits>
+
 using namespace DirectX;
 
 void ChunkedTerrainRenderer::Initialize(Graphics* graphics)
@@ -97,6 +99,25 @@ bool ChunkedTerrainRenderer::RebuildChunks()
                                   m_cellsPerChunk, m_cellSize,
                                   &m_height);
         }
+    }
+
+    // 전체 높이 범위를 모아 둔다. (색상 램프 / 스플래팅 기준)
+    m_globalMinHeight = (std::numeric_limits<float>::max)();
+    m_globalMaxHeight = -(std::numeric_limits<float>::max)();
+
+    for (const terrain::TerrainChunk& chunk : m_chunks)
+    {
+        if (!chunk.IsValid())
+            continue;
+
+        m_globalMinHeight = (std::min)(m_globalMinHeight, chunk.GetMinHeight());
+        m_globalMaxHeight = (std::max)(m_globalMaxHeight, chunk.GetMaxHeight());
+    }
+
+    if (m_globalMaxHeight <= m_globalMinHeight)
+    {
+        m_globalMinHeight = 0.0f;
+        m_globalMaxHeight = 1.0f;
     }
 
     m_quadTree.Build(m_chunksX, m_chunksZ, m_chunks);
@@ -278,7 +299,8 @@ void ChunkedTerrainRenderer::Render()
                                wireframe ? 1.0f : 0.0f,
                                1.0f);
 
-        draw.heightRange = XMFLOAT4(chunk.GetMinHeight(), chunk.GetMaxHeight(), 0.0f, 0.0f);
+        // 청크별이 아니라 지형 전체 기준으로 정규화한다.
+        draw.heightRange = XMFLOAT4(m_globalMinHeight, m_globalMaxHeight, 0.0f, 0.0f);
         const float morph = m_chunkMorph[index];
         draw.splat = XMFLOAT4(6.0f, splat ? 1.0f : 0.0f, debugColor ? 1.0f : 0.0f, morph);
 

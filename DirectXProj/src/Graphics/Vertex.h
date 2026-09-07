@@ -62,3 +62,13 @@ struct TerrainConstantBuffer
     DirectX::XMFLOAT4   splat;         // x : 타일 반복  y : 스플래팅  z : 디버그 단색  w : 모프 계수
     DirectX::XMFLOAT4   lodSelect;     // 현재 LOD 에 해당하는 성분만 1 (모프 타깃 선택용)
 };
+
+// 하늘 상수 버퍼 (b0) : 64 + 16 * 4 = 128 bytes
+struct SkyConstantBuffer
+{
+    DirectX::XMFLOAT4X4 wvp;
+    DirectX::XMFLOAT4   horizonColor;
+    DirectX::XMFLOAT4   zenithColor;
+    DirectX::XMFLOAT4   sunDirection;
+    DirectX::XMFLOAT4   params;        // x 시간 / y 구름 사용 / z 구름 양 / w 구름 속도
+};

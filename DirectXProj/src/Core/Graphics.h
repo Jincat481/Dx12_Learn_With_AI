@@ -68,6 +68,18 @@ public:
     // 3D 메시 하나를 그린다. 깊이 테스트가 켜진 상태로 그려진다.
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const MeshDrawParams& drawParams);
 
+    // ---- 하늘 (스텝 8, 9) ----
+    struct SkyDrawParams
+    {
+        DirectX::XMFLOAT4 horizonColor{ 0.62f, 0.72f, 0.86f, 1.0f };
+        DirectX::XMFLOAT4 zenithColor{ 0.12f, 0.30f, 0.62f, 1.0f };
+        DirectX::XMFLOAT4 sunDirection{ -0.45f, -1.0f, 0.35f, 0.0f };
+        DirectX::XMFLOAT4 params{ 0.0f, 0.0f, 0.5f, 0.02f };
+    };
+
+    // 하늘은 깊이에 쓰지 않고 가장 먼저 그린다.
+    void DrawSky(const Mesh& mesh, DirectX::FXMMATRIX world, const SkyDrawParams& params);
+
     float GetAspectRatio() const;
     DirectX::XMFLOAT3 GetEyePosition3D() const { return m_eyePosition; }
     DirectX::XMMATRIX GetView3D() const       { return DirectX::XMLoadFloat4x4(&m_view3D); }
@@ -94,6 +106,7 @@ private:
     bool CreateSpritePipeline();     // 셰이더, 상수 버퍼, 샘플러, 블렌드 상태
     bool CreateDepthBuffer();        // 깊이 버퍼 + 깊이 상태 (S29)
     bool CreateMeshPipeline();       // 터레인 셰이더, 상수 버퍼, 래스터라이저 상태
+    bool CreateSkyPipeline();        // 하늘 셰이더와 상수 버퍼
 
     ComPtr<ID3D11Device>           m_device;
     ComPtr<ID3D11DeviceContext>    m_context;
@@ -107,6 +120,7 @@ private:
     ComPtr<ID3D11DepthStencilView>  m_depthStencilView;
     ComPtr<ID3D11DepthStencilState> m_depthEnabledState;    // 3D 메시용
     ComPtr<ID3D11DepthStencilState> m_depthDisabledState;   // 2D 스프라이트용
+    ComPtr<ID3D11DepthStencilState> m_depthSkyState;        // 하늘 : 테스트만 하고 쓰지 않는다
 
     // ---- 3D 메시 파이프라인 ----
     ComPtr<ID3D11Buffer>            m_meshConstantBuffer;   // b0 : WVP + World + color + params
@@ -114,6 +128,9 @@ private:
     ComPtr<ID3D11RasterizerState>   m_rasterWireframeState; // 와이어프레임
     ComPtr<ID3D11SamplerState>      m_wrapSamplerState;     // 지형 텍스처 타일링용 (WRAP)
     std::shared_ptr<Shader>         m_terrainShader;
+
+    ComPtr<ID3D11Buffer>            m_skyConstantBuffer;
+    std::shared_ptr<Shader>         m_skyShader;
 
     DirectX::XMFLOAT4X4 m_view3D{};
     DirectX::XMFLOAT4X4 m_projection3D{};

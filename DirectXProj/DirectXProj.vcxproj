@@ -121,6 +121,7 @@
     <ClCompile Include="src\Game\PlayerController.cpp" />
     <ClCompile Include="src\Game\MenuController.cpp" />
     <ClCompile Include="src\Engine\Camera.cpp" />
+    <ClCompile Include="src\Engine\SkyRenderer.cpp" />
     <ClCompile Include="src\Graphics\Mesh.cpp" />
     <ClCompile Include="src\Core\Frustum.cpp" />
     <ClCompile Include="src\Terrain\TerrainChunk.cpp" />
@@ -166,6 +167,7 @@
     <ClInclude Include="src\Game\PlayerController.h" />
     <ClInclude Include="src\Game\MenuController.h" />
     <ClInclude Include="src\Engine\Camera.h" />
+    <ClInclude Include="src\Engine\SkyRenderer.h" />
     <ClInclude Include="src\Graphics\Mesh.h" />
     <ClInclude Include="src\Core\Frustum.h" />
     <ClInclude Include="src\Terrain\TerrainChunk.h" />
@@ -188,6 +190,8 @@
     <None Include="Shaders\SpritePS.hlsl" />
     <None Include="Shaders\TerrainVS.hlsl" />
     <None Include="Shaders\TerrainPS.hlsl" />
+    <None Include="Shaders\SkyVS.hlsl" />
+    <None Include="Shaders\SkyPS.hlsl" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

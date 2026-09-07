@@ -91,6 +91,11 @@ private:
     std::vector<int> m_chunkLod;
     std::vector<float> m_chunkMorph;
     terrain::TerrainQuadTree::Stats m_stats;
+
+    // 색상 램프는 지형 전체 기준으로 정규화해야 한다.
+    // 청크마다 자기 min/max 를 쓰면 평평한 청크에도 눈이 덮인다.
+    float m_globalMinHeight = 0.0f;
+    float m_globalMaxHeight = 1.0f;
     int m_drawnTriangles = 0;
 
     int   m_chunksX = 8;

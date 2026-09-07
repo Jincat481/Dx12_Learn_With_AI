@@ -32,7 +32,7 @@ private:
     enum class TerrainMode { Flat, Noise, Image, Splatting };
 
     // 청크 기반 씬 (스텝 5 이후)
-    enum class ChunkedMode { Culling, Lod, LodAdvanced };
+    enum class ChunkedMode { Culling, Lod, LodAdvanced, Sky, Clouds };
     void BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneName);
 
     // 씬 구성 함수들. 메뉴 항목 하나가 이 중 하나를 부른다.

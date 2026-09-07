@@ -16,6 +16,7 @@
 
 #include "Terrain/TerrainRenderer.h"
 #include "Terrain/ChunkedTerrainRenderer.h"
+#include "Engine/SkyRenderer.h"
 #include "Editor/MenuScreen.h"
 #include "Game/MenuController.h"
 
@@ -106,6 +107,7 @@ void Game::RegisterComponentTypes()
     factory.Register<Camera>("Camera");
     factory.Register<TerrainRenderer>("TerrainRenderer");
     factory.Register<ChunkedTerrainRenderer>("ChunkedTerrainRenderer");
+    factory.Register<SkyRenderer>("SkyRenderer");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -167,8 +169,18 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
 
     GameObject* cameraObject = scene->CreateGameObject("MainCamera");
     Camera* camera = cameraObject->AddComponent<Camera>();
-    camera->SetPosition(XMFLOAT3(0.0f, 90.0f, -150.0f));
-    camera->LookAt(XMFLOAT3(0.0f, 0.0f, 0.0f));
+
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds)
+    {
+        // 지평선과 하늘이 함께 보이도록 낮게 서서 앞을 본다.
+        camera->SetPosition(XMFLOAT3(0.0f, 70.0f, -260.0f));
+        camera->SetAngles(0.0f, -6.0f);
+    }
+    else
+    {
+        camera->SetPosition(XMFLOAT3(0.0f, 90.0f, -150.0f));
+        camera->LookAt(XMFLOAT3(0.0f, 0.0f, 0.0f));
+    }
 
     GameObject* terrainObject = scene->CreateGameObject("Terrain");
     ChunkedTerrainRenderer* terrain = terrainObject->AddComponent<ChunkedTerrainRenderer>();
@@ -180,6 +192,16 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     height.amplitude = 60.0f;
     height.frequency = 0.006f;
     terrain->SetHeightParams(height);
+
+    // 하늘은 지형보다 먼저 그려야 하므로 씬에 먼저 넣는다.
+    //  (Scene 은 소유 순서대로 Render 한다)
+    SkyRenderer* sky = nullptr;
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds)
+    {
+        GameObject* skyObject = scene->CreateGameObject("Sky");
+        sky = skyObject->AddComponent<SkyRenderer>();
+        sky->SetCloudsEnabled(mode == ChunkedMode::Clouds);
+    }
 
     terrain->SetCullingEnabled(true);
 
@@ -205,6 +227,15 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         terrain->SetSkirtEnabled(true);
         terrain->SetMorphEnabled(true);
         terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::LodColor);
+        break;
+
+    case ChunkedMode::Sky:
+    case ChunkedMode::Clouds:
+        // 스텝 8~9 : 하늘이 주인공이므로 지형은 텍스처를 입힌 상태로 둔다.
+        terrain->SetLodEnabled(true);
+        terrain->SetSkirtEnabled(true);
+        terrain->SetMorphEnabled(true);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
         break;
     }
 }
@@ -317,6 +348,16 @@ void Game::SetupShowcaseList()
         L"터레인 · 스텝 6-2  스티칭 & 지오모핑",
         L"스커트로 LOD 경계 균열 메우기 · 모프 타깃으로 팝핑 제거 (S52~S53)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::LodAdvanced, "Terrain_Step6b"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 8  스카이맵 (SkyDome)",
+        L"돔을 카메라에 붙이고 방향으로 하늘색 계산 · 태양 (S54~S55)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Sky, "Terrain_Step8"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 9  동적 왜곡 구름",
+        L"노이즈로 노이즈를 미는 도메인 워핑 · 시간에 따라 흐른다 (S56~S57)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Clouds, "Terrain_Step9"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -505,6 +546,24 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"K", L"스커트", chunked->IsSkirtEnabled() ? L"켬" : L"끔", true });
         lines.push_back({ L"M", L"지오모핑", chunked->IsMorphEnabled() ? L"켬" : L"끔", true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
+
+        // 하늘이 있는 씬이면 구름 조작도 보여 준다.
+        for (const auto& object : scene->GetGameObjects())
+        {
+            if (!object || object->IsPendingDestroy())
+                continue;
+
+            if (SkyRenderer* sky = object->GetComponent<SkyRenderer>())
+            {
+                wchar_t coverage[48];
+                _snwprintf_s(coverage, _countof(coverage), _TRUNCATE, L"%.0f%%", sky->GetCloudCoverage() * 100.0f);
+
+                lines.push_back({ L"V", L"구름", sky->AreCloudsEnabled() ? L"켬" : L"끔", true });
+                lines.push_back({ L"+ / -", L"구름 양", coverage, true });
+                break;
+            }
+        }
+
         lines.push_back({ L"", L"그리는 중", visible, true });
         lines.push_back({ L"", L"", triangles, true });
     }
@@ -796,6 +855,22 @@ void Game::HandleFrameEndCommands()
                 chunked->Regenerate(static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 7u));
 
             continue;   // 청크 지형은 여기까지
+        }
+
+        // ---- 하늘 (스텝 8~9) ----
+        if (SkyRenderer* sky = object->GetComponent<SkyRenderer>())
+        {
+            if (input.GetKeyDown('V'))
+            {
+                sky->ToggleClouds();
+                dxutil::DebugLog(L"[Sky] 구름 %s", sky->AreCloudsEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown(VK_OEM_PLUS) || input.GetKeyDown(VK_ADD))
+                sky->SetCloudCoverage((std::min)(0.95f, sky->GetCloudCoverage() + 0.08f));
+            if (input.GetKeyDown(VK_OEM_MINUS) || input.GetKeyDown(VK_SUBTRACT))
+                sky->SetCloudCoverage((std::max)(0.05f, sky->GetCloudCoverage() - 0.08f));
+
+            continue;
         }
 
         // ---- 단일 메시 지형 (스텝 1~4) ----

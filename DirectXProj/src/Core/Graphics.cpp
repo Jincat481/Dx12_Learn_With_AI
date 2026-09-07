@@ -28,6 +28,7 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
     if (!CreateDepthBuffer())            return false;
     if (!CreateSpritePipeline())         return false;
     if (!CreateMeshPipeline())           return false;
+    if (!CreateSkyPipeline())            return false;
 
     TextureManager::Get().Initialize(m_device.Get());
 
@@ -65,10 +66,13 @@ void Graphics::Shutdown()
     m_blendState.Reset();
     m_samplerState.Reset();
     m_constantBuffer.Reset();
+    m_skyShader.reset();
+    m_skyConstantBuffer.Reset();
     m_terrainShader.reset();
     m_rasterWireframeState.Reset();
     m_rasterSolidState.Reset();
     m_meshConstantBuffer.Reset();
+    m_depthSkyState.Reset();
     m_depthDisabledState.Reset();
     m_depthEnabledState.Reset();
     m_depthStencilView.Reset();
@@ -412,6 +416,19 @@ bool Graphics::CreateDepthBuffer()
                   L"CreateDepthStencilState(disabled)"))
         return false;
 
+    // 하늘용 : 깊이를 "읽기만" 한다. (S55)
+    //  하늘은 가장 먼 곳(깊이 1.0)에 그려지고 깊이를 쓰지 않으므로,
+    //  이미 무언가 그려진 픽셀은 통과하지 못하고 배경만 채운다.
+    //  덕분에 씬에서 하늘을 몇 번째로 그리든 결과가 같다.
+    D3D11_DEPTH_STENCIL_DESC skyDesc = {};
+    skyDesc.DepthEnable    = TRUE;
+    skyDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    skyDesc.DepthFunc      = D3D11_COMPARISON_LESS_EQUAL;   // 깊이 1.0 == 1.0 도 통과해야 한다
+
+    if (DX_FAILED(m_device->CreateDepthStencilState(&skyDesc, m_depthSkyState.GetAddressOf()),
+                  L"CreateDepthStencilState(sky)"))
+        return false;
+
     return true;
 }
 
@@ -562,4 +579,91 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
     // 3) 그리기. 청크 LOD 는 같은 인덱스 버퍼의 일부 구간만 쓴다.
     const UINT indexCount = (drawParams.indexCount > 0) ? drawParams.indexCount : mesh.GetIndexCount();
     m_context->DrawIndexed(indexCount, drawParams.indexOffset, 0);
+}
+
+// =============================================================
+// 하늘 파이프라인 (스텝 8)
+// =============================================================
+bool Graphics::CreateSkyPipeline()
+{
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = sizeof(SkyConstantBuffer);
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (DX_FAILED(m_device->CreateBuffer(&cbDesc, nullptr, m_skyConstantBuffer.GetAddressOf()),
+                  L"CreateBuffer(sky constant)"))
+        return false;
+
+    Shader::Desc shaderDesc;
+    shaderDesc.vsPath = Paths::Resolve(L"Shaders/SkyVS.hlsl");
+    shaderDesc.psPath = Paths::Resolve(L"Shaders/SkyPS.hlsl");
+    shaderDesc.vsEntry = "main";
+    shaderDesc.psEntry = "main";
+
+    // 하늘은 POSITION 만 쓰지만, 정점 버퍼는 터레인과 같은 형식을 재사용한다.
+    // 입력 레이아웃에 셰이더가 안 쓰는 항목이 더 있는 것은 허용된다.
+    shaderDesc.layout = TerrainVertex::kLayout;
+    shaderDesc.layoutCount = TerrainVertex::kLayoutCount;
+    shaderDesc.cacheCompiled = (SHADER_CACHE_ENABLED != 0);
+    shaderDesc.useCache      = (SHADER_CACHE_ENABLED != 0);
+
+    m_skyShader = std::make_shared<Shader>();
+    if (!m_skyShader->Load(m_device.Get(), shaderDesc))
+    {
+        dxutil::DebugLog(L"[Graphics] 하늘 셰이더 로드 실패 : %s", m_skyShader->GetLastError().c_str());
+        return false;
+    }
+
+#if HOT_RELOAD_ENABLED
+    ShaderManager::Get().Register("Sky", m_skyShader);
+#endif
+
+    return true;
+}
+
+void Graphics::DrawSky(const Mesh& mesh, FXMMATRIX world, const SkyDrawParams& params)
+{
+    if (!m_context || !mesh.IsValid() || !m_skyShader || !m_skyShader->IsValid())
+        return;
+
+    const XMMATRIX view = XMLoadFloat4x4(&m_view3D);
+    const XMMATRIX projection = XMLoadFloat4x4(&m_projection3D);
+    const XMMATRIX wvp = world * view * projection;
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(m_context->Map(m_skyConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        SkyConstantBuffer* cb = static_cast<SkyConstantBuffer*>(mapped.pData);
+        XMStoreFloat4x4(&cb->wvp, XMMatrixTranspose(wvp));
+        cb->horizonColor = params.horizonColor;
+        cb->zenithColor = params.zenithColor;
+
+        XMVECTOR sun = XMVector3Normalize(XMLoadFloat4(&params.sunDirection));
+        XMStoreFloat4(&cb->sunDirection, sun);
+        cb->sunDirection.w = params.sunDirection.w;
+
+        cb->params = params.params;
+        m_context->Unmap(m_skyConstantBuffer.Get(), 0);
+    }
+
+    // 하늘은 항상 모든 것의 뒤에 있어야 한다. (S55)
+    m_context->OMSetDepthStencilState(m_depthSkyState.Get(), 0);
+    m_context->RSSetState(m_rasterSolidState.Get());
+
+    const UINT stride = mesh.GetStride();
+    const UINT offset = 0;
+    ID3D11Buffer* vertexBuffer = mesh.GetVertexBuffer();
+
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    m_context->IASetIndexBuffer(mesh.GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+    m_skyShader->Bind(m_context.Get());
+
+    m_context->VSSetConstantBuffers(0, 1, m_skyConstantBuffer.GetAddressOf());
+    m_context->PSSetConstantBuffers(0, 1, m_skyConstantBuffer.GetAddressOf());
+
+    m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
 }
