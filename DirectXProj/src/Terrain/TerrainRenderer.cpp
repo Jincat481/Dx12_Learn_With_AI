@@ -134,12 +134,49 @@ void TerrainRenderer::SetHeightParams(const terrain::HeightParams& params)
     m_dirty = true;
 }
 
+// -------------------------------------------------------------
+// N 키의 동작은 높이 공급원에 따라 다르다.
+//  노이즈 : 새 seed 로 다른 지형을 만든다
+//  이미지 : 등록된 높이맵 중 다음 장으로 넘어간다
+//          (이미지는 seed 와 무관하므로 seed 를 바꿔도 화면이 그대로다)
+// -------------------------------------------------------------
 void TerrainRenderer::Regenerate(unsigned seed)
 {
+    if (m_height.GetParams().source == terrain::HeightSource::Image)
+    {
+        NextHeightImage();
+        return;
+    }
+
     terrain::HeightParams params = m_height.GetParams();
     params.seed = seed;
     m_height.SetParams(params);
     m_dirty = true;
+}
+
+void TerrainRenderer::SetHeightSourceImages(std::vector<std::wstring> paths, float amplitude)
+{
+    m_imagePaths = std::move(paths);
+    m_imageIndex = 0;
+
+    if (m_imagePaths.empty())
+    {
+        SetHeightSourceNoise();
+        return;
+    }
+
+    SetHeightSourceImage(m_imagePaths[0], amplitude);
+}
+
+void TerrainRenderer::NextHeightImage()
+{
+    if (m_imagePaths.size() < 2)
+        return;
+
+    m_imageIndex = (m_imageIndex + 1) % static_cast<int>(m_imagePaths.size());
+    SetHeightSourceImage(m_imagePaths[m_imageIndex], m_height.GetParams().amplitude);
+
+    dxutil::DebugLog(L"[Terrain] 높이맵 교체 : %s", m_imageName.c_str());
 }
 
 void TerrainRenderer::SetHeightSourceNoise(float amplitude, float frequency)
@@ -169,6 +206,11 @@ void TerrainRenderer::SetHeightSourceImage(const std::wstring& path, float ampli
     m_height.SetImage(std::move(image));
 
     m_imagePath = path;
+
+    // 파일 이름만 뽑아 UI 에 보여 준다.
+    const size_t slash = path.find_last_of(L"/\\");
+    m_imageName = (slash == std::wstring::npos) ? path : path.substr(slash + 1);
+
     m_dirty = true;
 }
 

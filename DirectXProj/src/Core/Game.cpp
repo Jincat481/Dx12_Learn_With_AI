@@ -141,7 +141,9 @@ void Game::BuildTerrainScene(TerrainMode mode, const std::string& sceneName)
 
     case TerrainMode::Image:
         // 이미지 값은 0~1 이라 노이즈보다 진폭을 크게 줘야 굴곡이 보인다.
-        terrain->SetHeightSourceImage(L"Assets/heightmap.png", 26.0f);
+        terrain->SetHeightSourceImages({ L"Assets/heightmap.png",
+                                         L"Assets/heightmap2.png",
+                                         L"Assets/heightmap3.png" }, 26.0f);
         terrain->SetDisplayMode(TerrainRenderer::DisplayMode::HeightColor);
         break;
 
@@ -510,9 +512,19 @@ void Game::UpdateControlsPanel()
     {
         m_controls.SetTitle(L"조작   (Tab 으로 보기 전환)");
         lines.push_back({ L"Tab", L"표시 모드", terrain->GetDisplayModeName(), true });
-        lines.push_back({ L"N", L"새 지형 생성", L"", false });
-        lines.push_back({ L"P", L"노이즈 종류",
-                          terrain->GetNoiseType() == terrain::NoiseType::Perlin ? L"펄린" : L"값(value)", false });
+
+        // 이미지 높이맵에서는 seed 를 바꿔도 화면이 그대로다.
+        // 그래서 N 은 "다음 높이맵" 으로, P(노이즈 종류)는 아예 숨긴다.
+        if (terrain->GetHeightSource() == terrain::HeightSource::Image)
+        {
+            lines.push_back({ L"N", L"다음 높이맵", terrain->GetCurrentImageName(), true });
+        }
+        else
+        {
+            lines.push_back({ L"N", L"새 지형 생성", L"", false });
+            lines.push_back({ L"P", L"노이즈 종류",
+                              terrain->GetNoiseType() == terrain::NoiseType::Perlin ? L"펄린" : L"값(value)", false });
+        }
     }
     else
     {

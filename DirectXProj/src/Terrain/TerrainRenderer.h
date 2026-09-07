@@ -67,6 +67,11 @@ public:
     // ---- 스텝 3 : 높이맵 이미지 ----
     void SetHeightSourceNoise(float amplitude = 14.0f, float frequency = 0.012f);
     void SetHeightSourceImage(const std::wstring& path, float amplitude);
+
+    // 여러 장을 등록해 두면 N 키로 번갈아 볼 수 있다.
+    void SetHeightSourceImages(std::vector<std::wstring> paths, float amplitude);
+    void NextHeightImage();
+    const std::wstring& GetCurrentImageName() const { return m_imageName; }
     terrain::HeightSource GetHeightSource() const { return m_height.GetParams().source; }
 
     // ---- 스텝 4 : 텍스처 스플래팅 ----
@@ -92,6 +97,9 @@ private:
     terrain::GridDesc m_desc;
     terrain::HeightField m_height;
     std::wstring m_imagePath;
+    std::vector<std::wstring> m_imagePaths;
+    int m_imageIndex = 0;
+    std::wstring m_imageName;
     terrain::HeightRange m_heightRange;
     bool m_heightEnabled = true;
     bool m_dirty = true;
