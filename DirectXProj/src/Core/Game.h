@@ -2,6 +2,7 @@
 #include "Core/stdafx.h"
 #include "Editor/HierarchyPanel.h"
 #include "Editor/InspectorPanel.h"
+#include "Editor/ControlsPanel.h"
 
 class Window;
 class Graphics;
@@ -55,6 +56,7 @@ private:
     void UpdatePickingAndDrag();       // 마우스 피킹 / 선택 하이라이트 / 드래그 이동
     void UpdateEditorUI();             // Hierarchy / Inspector 입력 처리
     void DrawOverlayUI();              // 메뉴 + 에디터 패널을 한 번의 GDI 오버레이로 그린다
+    void UpdateControlsPanel();        // 조작 안내 갱신
     void ApplyReparent(uint64_t dragId, uint64_t newParentId);
     GameObject* GetSelectedObject() const;
     void HandleFrameEndCommands();     // 저장/로드처럼 프레임 경계에서만 안전한 작업
@@ -90,4 +92,5 @@ private:
     // 에디터 UI
     HierarchyPanel m_hierarchy;
     InspectorPanel m_inspector;
+    ControlsPanel  m_controls;
 };

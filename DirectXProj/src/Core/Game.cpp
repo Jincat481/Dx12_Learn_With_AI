@@ -82,7 +82,7 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
     dxutil::DebugLog(L"[Game] 초기화 완료");
     dxutil::DebugLog(L"  [카메라] 우클릭 누른 채 : 마우스 회전 | WASD 이동 | Q,E 상하 | 휠 속도조절");
     dxutil::DebugLog(L"           F : 기본 위치로 리셋");
-    dxutil::DebugLog(L"  [터레인] G 와이어프레임 | T 높이 | N 새 지형 | P 펄린<->값 | B 스플래팅");
+    dxutil::DebugLog(L"  [터레인] Tab 표시 모드 순환 | N 새 지형 | P 펄린<->값 노이즈");
     dxutil::DebugLog(L"  [공통] ESC 메뉴로 | H Hierarchy | I Inspector");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
     dxutil::DebugLog(L"  H: Hierarchy 켜기/끄기 | I: Inspector 켜기/끄기");
@@ -129,26 +129,25 @@ void Game::BuildTerrainScene(TerrainMode mode, const std::string& sceneName)
     switch (mode)
     {
     case TerrainMode::Flat:
-        terrain->SetHeightEnabled(false);
+        terrain->SetDisplayMode(TerrainRenderer::DisplayMode::FlatGrid);
         break;
 
     case TerrainMode::Noise:
-        terrain->SetHeightEnabled(true);
         terrain->SetHeightSourceNoise();
+        terrain->SetDisplayMode(TerrainRenderer::DisplayMode::HeightColor);
         break;
 
     case TerrainMode::Image:
-        terrain->SetHeightEnabled(true);
         // 이미지 값은 0~1 이라 노이즈보다 진폭을 크게 줘야 굴곡이 보인다.
         terrain->SetHeightSourceImage(L"Assets/heightmap.png", 26.0f);
+        terrain->SetDisplayMode(TerrainRenderer::DisplayMode::HeightColor);
         break;
 
     case TerrainMode::Splatting:
         // 스플래팅은 경사도가 있어야 바위 레이어가 드러난다.
         // 완만한 지형이면 절벽이 없어 바위가 한 픽셀도 안 나온다.
-        terrain->SetHeightEnabled(true);
         terrain->SetHeightSourceNoise(/*amplitude*/ 34.0f, /*frequency*/ 0.022f);
-        terrain->SetSplattingEnabled(true);
+        terrain->SetDisplayMode(TerrainRenderer::DisplayMode::Splatting);
         break;
     }
 }
@@ -375,6 +374,58 @@ void Game::UpdateEditorUI()
 
     // 글자를 입력받는 동안 WASD 로 캐릭터가 움직이면 안 된다.
     input.SetTextCaptureActive(m_inspector.IsEditing());
+
+    UpdateControlsPanel();
+}
+
+// -------------------------------------------------------------
+// 조작 안내
+//  현재 씬에 있는 것만 보여준다. 지금 상태(표시 모드 등)도 함께 띄운다.
+// -------------------------------------------------------------
+void Game::UpdateControlsPanel()
+{
+    Scene* scene = SceneManager::Get().GetActiveScene();
+    if (!scene)
+        return;
+
+    TerrainRenderer* terrain = nullptr;
+    for (const auto& object : scene->GetGameObjects())
+    {
+        if (!object || object->IsPendingDestroy())
+            continue;
+        if (TerrainRenderer* found = object->GetComponent<TerrainRenderer>())
+        {
+            terrain = found;
+            break;
+        }
+    }
+
+    std::vector<ControlsPanel::Line> lines;
+
+    if (terrain)
+    {
+        m_controls.SetTitle(L"조작   (Tab 으로 보기 전환)");
+        lines.push_back({ L"Tab", L"표시 모드", terrain->GetDisplayModeName(), true });
+        lines.push_back({ L"N", L"새 지형 생성", L"", false });
+        lines.push_back({ L"P", L"노이즈 종류",
+                          terrain->GetNoiseType() == terrain::NoiseType::Perlin ? L"펄린" : L"값(value)", false });
+    }
+    else
+    {
+        m_controls.SetTitle(L"조작");
+        lines.push_back({ L"좌클릭", L"오브젝트 선택", L"", false });
+        lines.push_back({ L"드래그", L"오브젝트 이동", L"", false });
+        lines.push_back({ L"F1 / F2", L"자식 추가 / 삭제", L"", false });
+    }
+
+    lines.push_back({ L"우클릭+이동", L"시점 회전", L"", false });
+    lines.push_back({ L"우클릭+WASD", L"카메라 이동", L"", false });
+    lines.push_back({ L"F", L"카메라 리셋", L"", false });
+    lines.push_back({ L"H / I", L"패널 켜기/끄기", L"", false });
+    lines.push_back({ L"F5 / F9", L"씬 저장 / 불러오기", L"", false });
+    lines.push_back({ L"ESC", L"메뉴로 돌아가기", L"", false });
+
+    m_controls.SetLines(std::move(lines));
 }
 
 void Game::DrawOverlayUI()
@@ -404,6 +455,7 @@ void Game::DrawOverlayUI()
     {
         m_hierarchy.Draw(hdc, m_selectedId);
         m_inspector.Draw(hdc);
+        m_controls.Draw(hdc, m_graphics->GetWidth(), m_graphics->GetHeight());
     }
 
     m_graphics->EndOverlay();
@@ -597,19 +649,11 @@ void Game::HandleFrameEndCommands()
         TerrainRenderer* terrain = object->GetComponent<TerrainRenderer>();
         if (!terrain) continue;
 
-        if (input.GetKeyDown('G'))          // 와이어프레임
-            terrain->SetWireframe(!terrain->IsWireframe());
-
-        if (input.GetKeyDown('T'))          // 평면 <-> 하이트맵
+        // Tab 하나로 표시 모드를 순환한다. (예전의 G / T / B 를 합쳤다)
+        if (input.GetKeyDown(VK_TAB))
         {
-            terrain->SetHeightEnabled(!terrain->IsHeightEnabled());
-            dxutil::DebugLog(L"[Terrain] 높이 %s", terrain->IsHeightEnabled() ? L"켬" : L"끔");
-        }
-
-        if (input.GetKeyDown('B'))          // 스플래팅 켜기/끄기
-        {
-            terrain->SetSplattingEnabled(!terrain->IsSplattingEnabled());
-            dxutil::DebugLog(L"[Terrain] 스플래팅 %s", terrain->IsSplattingEnabled() ? L"켬" : L"끔");
+            terrain->CycleDisplayMode();
+            dxutil::DebugLog(L"[Terrain] 표시 모드 : %s", terrain->GetDisplayModeName());
         }
 
         if (input.GetKeyDown('P'))          // 펄린 <-> 값 노이즈

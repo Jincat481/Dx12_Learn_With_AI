@@ -34,6 +34,72 @@ void TerrainRenderer::LoadSplatLayers()
         m_layers[i] = TextureManager::Get().Load(Paths::Resolve(kLayerPaths[i]));
 }
 
+// -------------------------------------------------------------
+// 표시 모드
+//  네 가지 보기 방식이 서로 배타적이므로 플래그를 한 번에 정한다.
+// -------------------------------------------------------------
+void TerrainRenderer::SetDisplayMode(DisplayMode mode)
+{
+    m_displayMode = mode;
+    ApplyDisplayMode();
+}
+
+void TerrainRenderer::CycleDisplayMode()
+{
+    const int next = (static_cast<int>(m_displayMode) + 1) % static_cast<int>(DisplayMode::Count);
+    SetDisplayMode(static_cast<DisplayMode>(next));
+}
+
+const wchar_t* TerrainRenderer::GetDisplayModeName() const
+{
+    switch (m_displayMode)
+    {
+    case DisplayMode::Splatting:   return L"텍스처 스플래팅";
+    case DisplayMode::HeightColor: return L"높이 색상";
+    case DisplayMode::Wireframe:   return L"와이어프레임";
+    case DisplayMode::FlatGrid:    return L"평면 그리드";
+    default:                       return L"-";
+    }
+}
+
+void TerrainRenderer::ApplyDisplayMode()
+{
+    const bool wasHeightEnabled = m_heightEnabled;
+
+    switch (m_displayMode)
+    {
+    case DisplayMode::Splatting:
+        m_wireframe = false;
+        m_heightEnabled = true;
+        SetSplattingEnabled(true);
+        break;
+
+    case DisplayMode::HeightColor:
+        m_wireframe = false;
+        m_heightEnabled = true;
+        m_splatEnabled = false;
+        break;
+
+    case DisplayMode::Wireframe:
+        m_wireframe = true;
+        m_heightEnabled = true;
+        break;
+
+    case DisplayMode::FlatGrid:
+        m_wireframe = false;
+        m_heightEnabled = false;
+        m_splatEnabled = false;
+        break;
+
+    default:
+        break;
+    }
+
+    // 높이 사용 여부가 바뀔 때만 메시를 다시 만든다.
+    if (wasHeightEnabled != m_heightEnabled)
+        m_dirty = true;
+}
+
 void TerrainRenderer::SetSplattingEnabled(bool enabled)
 {
     m_splatEnabled = enabled;

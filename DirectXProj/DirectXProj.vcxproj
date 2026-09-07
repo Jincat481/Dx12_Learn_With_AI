@@ -130,6 +130,7 @@
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
     <ClCompile Include="src\Editor\MenuScreen.cpp" />
+    <ClCompile Include="src\Editor\ControlsPanel.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -170,6 +171,7 @@
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />
     <ClInclude Include="src\Editor\MenuScreen.h" />
+    <ClInclude Include="src\Editor\ControlsPanel.h" />
   </ItemGroup>
 
   <!-- HLSL 은 런타임에 D3DCompileFromFile 로 컴파일하므로 빌드에서 제외한다 -->

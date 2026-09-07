@@ -35,6 +35,23 @@ public:
     void SetGrid(int cellsX, int cellsZ, float cellSize);
     const terrain::GridDesc& GetGridDesc() const { return m_desc; }
 
+    // ---- 표시 모드 (Tab 하나로 순환) ----
+    //  예전에는 와이어프레임 G, 높이 T, 스플래팅 B 로 따로 눌렀다.
+    //  서로 배타적인 "보기 방식" 이라 하나의 순환 목록으로 합쳤다.
+    enum class DisplayMode
+    {
+        Splatting,     // 텍스처 스플래팅
+        HeightColor,   // 높이 색상 램프
+        Wireframe,     // 와이어프레임
+        FlatGrid,      // 평면 그리드 (높이 끔)
+        Count
+    };
+
+    void SetDisplayMode(DisplayMode mode);
+    void CycleDisplayMode();
+    DisplayMode GetDisplayMode() const { return m_displayMode; }
+    const wchar_t* GetDisplayModeName() const;
+
     void SetWireframe(bool wireframe) { m_wireframe = wireframe; }
     bool IsWireframe() const { return m_wireframe; }
 
@@ -67,6 +84,7 @@ public:
 private:
     bool RebuildMesh();
     void LoadSplatLayers();
+    void ApplyDisplayMode();
 
     Graphics* m_graphics = nullptr;
     Mesh      m_mesh;
@@ -78,6 +96,7 @@ private:
     bool m_heightEnabled = true;
     bool m_dirty = true;
     bool m_wireframe = false;
+    DisplayMode m_displayMode = DisplayMode::HeightColor;
 
     // 스플래팅 레이어 : 흙 / 풀 / 바위 / 눈
     static constexpr int kLayerCount = 4;
