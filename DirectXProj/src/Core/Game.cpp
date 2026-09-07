@@ -12,6 +12,9 @@
 #include "Engine/SpriteRenderer.h"
 #include "Engine/ComponentFactory.h"
 #include "Engine/Picker.h"
+#include "Engine/Camera.h"
+
+#include "Terrain/TerrainRenderer.h"
 
 #include "Graphics/ShaderManager.h"
 #include "Graphics/TextureManager.h"
@@ -66,7 +69,7 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
 
     // 5) 씬 구성
     m_savePath = Paths::ResolveForWrite(L"Saves/scene.json");
-    BuildDefaultScene();
+    BuildTerrainScene();
 
     // 6) GPU 리소스가 필요한 Component 초기화 → 이후 첫 Update 에서 Start
     SceneManager::Get().Initialize(m_graphics.get());
@@ -74,7 +77,8 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
     m_running = true;
 
     dxutil::DebugLog(L"[Game] 초기화 완료");
-    dxutil::DebugLog(L"  이동 WASD/방향키 | 회전 Q,E | 크기 Z,X | 초기화 R");
+    dxutil::DebugLog(L"  [터레인] 가운데버튼 드래그 궤도회전 | 휠 줌 | WASD 이동 | Q,E 높이 | F 리셋 | G 와이어프레임");
+    dxutil::DebugLog(L"  [씬 전환] F3 : 터레인 쇼케이스 <-> 스프라이트 데모");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
     dxutil::DebugLog(L"  H: Hierarchy 켜기/끄기 | I: Inspector 켜기/끄기");
     dxutil::DebugLog(L"  Hierarchy 에서 줄을 끌어다 다른 줄 위에 놓으면 그 자식이 되고, 아래 빈 곳에 놓으면 루트로 분리된다");
@@ -93,11 +97,34 @@ void Game::RegisterComponentTypes()
     factory.Register<Transform>("Transform");
     factory.Register<SpriteRenderer>("SpriteRenderer");
     factory.Register<PlayerController>("PlayerController");
+    factory.Register<Camera>("Camera");
+    factory.Register<TerrainRenderer>("TerrainRenderer");
 }
 
-void Game::BuildDefaultScene()
+// -------------------------------------------------------------
+// 터레인 쇼케이스 - 스텝 1 : 평면 그리드
+//  카메라 오브젝트 하나와 터레인 오브젝트 하나로 시작한다.
+// -------------------------------------------------------------
+void Game::BuildTerrainScene()
 {
-    Scene* scene = SceneManager::Get().CreateScene("Main");
+    Scene* scene = SceneManager::Get().CreateScene("TerrainShowcase");
+    if (!scene)
+        return;
+
+    GameObject* cameraObject = scene->CreateGameObject("MainCamera");
+    Camera* camera = cameraObject->AddComponent<Camera>();
+    camera->SetTarget(XMFLOAT3(0.0f, 0.0f, 0.0f));
+    camera->SetDistance(90.0f);
+    camera->SetAngles(35.0f, 30.0f);
+
+    GameObject* terrainObject = scene->CreateGameObject("Terrain");
+    TerrainRenderer* terrain = terrainObject->AddComponent<TerrainRenderer>();
+    terrain->SetGrid(64, 64, 2.0f);   // 64 x 64 칸, 칸 한 변 2 → 128 x 128 크기
+}
+
+void Game::BuildSpriteDemoScene()
+{
+    Scene* scene = SceneManager::Get().CreateScene("SpriteDemo");
     if (!scene)
         return;
 
@@ -390,6 +417,35 @@ void Game::HandleFrameEndCommands()
     {
         if (!scene->Load(m_savePath, m_graphics.get()))
             dxutil::DebugLog(L"[Game] 불러오기 실패 (먼저 F5 로 저장한다)");
+    }
+
+    // F3 : 씬 전환 (터레인 쇼케이스 <-> 스프라이트 데모)
+    //  Scene 을 통째로 갈아엎으므로 프레임이 끝난 지금이 안전한 시점이다.
+    if (input.GetKeyDown(VK_F3))
+    {
+        m_selectedId = 0;
+        m_dragging = false;
+        m_terrainSceneActive = !m_terrainSceneActive;
+
+        if (m_terrainSceneActive)
+            BuildTerrainScene();
+        else
+            BuildSpriteDemoScene();
+
+        SceneManager::Get().Initialize(m_graphics.get());
+        dxutil::DebugLog(L"[Game] 씬 전환 : %s", m_terrainSceneActive ? L"TerrainShowcase" : L"SpriteDemo");
+        return;
+    }
+
+    // G : 터레인 와이어프레임 토글
+    if (input.GetKeyDown('G'))
+    {
+        for (const auto& object : scene->GetGameObjects())
+        {
+            if (!object) continue;
+            if (TerrainRenderer* terrain = object->GetComponent<TerrainRenderer>())
+                terrain->SetWireframe(!terrain->IsWireframe());
+        }
     }
 
     // F1 : 자식 GameObject 추가 (지연 생성 확인)

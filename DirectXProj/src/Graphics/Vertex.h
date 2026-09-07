@@ -24,3 +24,31 @@ struct SpriteConstantBuffer
     DirectX::XMFLOAT4   color;
     DirectX::XMFLOAT4   params;   // x : 실루엣 모드(0=일반, 1=단색 실루엣), y~w 예약
 };
+
+// =============================================================
+// 터레인 정점 (S31)
+//  TerrainVS.hlsl 의 semantic 과 메모리 배치가 일치해야 한다.
+//      offset  0 : POSITION (R32G32B32_FLOAT)
+//      offset 12 : NORMAL   (R32G32B32_FLOAT)
+//      offset 24 : TEXCOORD (R32G32_FLOAT)
+//  stride = 32 bytes
+// =============================================================
+struct TerrainVertex
+{
+    DirectX::XMFLOAT3 position;
+    DirectX::XMFLOAT3 normal;
+    DirectX::XMFLOAT2 uv;
+
+    static const D3D11_INPUT_ELEMENT_DESC kLayout[3];
+    static constexpr UINT kLayoutCount = 3;
+};
+
+// 터레인 상수 버퍼 (b0)
+//  float4x4(64) + float4x4(64) + float4(16) + float4(16) = 160 bytes (16의 배수)
+struct TerrainConstantBuffer
+{
+    DirectX::XMFLOAT4X4 wvp;
+    DirectX::XMFLOAT4X4 world;
+    DirectX::XMFLOAT4   color;
+    DirectX::XMFLOAT4   params;   // x,y : 격자 칸 수  z : 와이어프레임(0/1)  w : 예약
+};

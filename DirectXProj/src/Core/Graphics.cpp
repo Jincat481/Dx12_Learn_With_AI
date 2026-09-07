@@ -1,6 +1,7 @@
 #include "Core/stdafx.h"
 #include "Core/Graphics.h"
 #include "Graphics/Shader.h"
+#include "Graphics/Mesh.h"
 #include "Graphics/ShaderManager.h"
 #include "Graphics/TextureManager.h"
 #include "Utils/Paths.h"
@@ -24,7 +25,9 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
 
     if (!CreateDeviceAndSwapChain(hwnd)) return false;
     if (!CreateRenderTargetView())       return false;
+    if (!CreateDepthBuffer())            return false;
     if (!CreateSpritePipeline())         return false;
+    if (!CreateMeshPipeline())           return false;
 
     TextureManager::Get().Initialize(m_device.Get());
 
@@ -37,6 +40,13 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
                                                        0.1f, 1000.0f);
     XMStoreFloat4x4(&m_viewMatrix, view);
     XMStoreFloat4x4(&m_projectionMatrix, projection);
+
+    // Camera 컴포넌트가 없을 때를 대비한 기본 3D 카메라
+    SetCamera3D(XMMatrixLookAtLH(XMVectorSet(40.0f, 40.0f, -40.0f, 1.0f),
+                                 XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f),
+                                 XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)),
+                XMMatrixPerspectiveFovLH(XMConvertToRadians(60.0f), GetAspectRatio(), 0.5f, 1000.0f),
+                XMFLOAT3(40.0f, 40.0f, -40.0f));
 
     dxutil::DebugLog(L"[Graphics] 초기화 완료 (%dx%d)", width, height);
     return true;
@@ -55,6 +65,15 @@ void Graphics::Shutdown()
     m_blendState.Reset();
     m_samplerState.Reset();
     m_constantBuffer.Reset();
+    m_terrainShader.reset();
+    m_rasterWireframeState.Reset();
+    m_rasterSolidState.Reset();
+    m_meshConstantBuffer.Reset();
+    m_depthDisabledState.Reset();
+    m_depthEnabledState.Reset();
+    m_depthStencilView.Reset();
+    m_depthStencilTexture.Reset();
+
     m_backBufferSurface.Reset();
     m_renderTargetView.Reset();
     m_swapChain.Reset();
@@ -216,8 +235,13 @@ void Graphics::BeginFrame()
     if (!m_context)
         return;
 
-    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), nullptr);
+    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
     m_context->ClearRenderTargetView(m_renderTargetView.Get(), m_clearColor);
+
+    // 깊이는 가장 먼 값(1.0)으로 초기화한다. 이걸 빼먹으면 이전 프레임의
+    // 깊이가 남아 새 프레임의 물체가 가려진다. (S29)
+    if (m_depthStencilView)
+        m_context->ClearDepthStencilView(m_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     const float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xFFFFFFFF);
@@ -292,6 +316,10 @@ void Graphics::DrawSprite(ID3D11Buffer* vertexBuffer,
     const UINT stride = sizeof(Vertex);
     const UINT offset = 0;
 
+    // 스프라이트는 그린 순서(화가 알고리즘)로 겹치므로 깊이 테스트를 끈다.
+    m_context->OMSetDepthStencilState(m_depthDisabledState.Get(), 0);
+    m_context->RSSetState(m_rasterizerState.Get());
+
     m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
     m_context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
@@ -331,4 +359,178 @@ XMFLOAT3 Graphics::ScreenToWorld(int screenX, int screenY) const
     const XMVECTOR world = XMVector3TransformCoord(XMVectorSet(ndcX, ndcY, 0.0f, 1.0f), inverse);
 
     return XMFLOAT3(XMVectorGetX(world), XMVectorGetY(world), 0.0f);
+}
+
+// =============================================================
+// 깊이 버퍼 (S29)
+//  3D 는 그린 순서가 아니라 카메라와의 거리로 앞뒤가 정해진다.
+//  픽셀마다 깊이를 저장해 두고, 더 먼 픽셀은 버린다.
+// =============================================================
+bool Graphics::CreateDepthBuffer()
+{
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width            = static_cast<UINT>(m_width);
+    desc.Height           = static_cast<UINT>(m_height);
+    desc.MipLevels        = 1;
+    desc.ArraySize        = 1;
+    desc.Format           = DXGI_FORMAT_D24_UNORM_S8_UINT;   // 깊이 24비트 + 스텐실 8비트
+    desc.SampleDesc.Count = 1;
+    desc.Usage            = D3D11_USAGE_DEFAULT;
+    desc.BindFlags        = D3D11_BIND_DEPTH_STENCIL;
+
+    if (DX_FAILED(m_device->CreateTexture2D(&desc, nullptr, m_depthStencilTexture.GetAddressOf()),
+                  L"CreateTexture2D(depth)"))
+        return false;
+
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format        = desc.Format;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+
+    if (DX_FAILED(m_device->CreateDepthStencilView(m_depthStencilTexture.Get(), &dsvDesc,
+                                                   m_depthStencilView.GetAddressOf()),
+                  L"CreateDepthStencilView"))
+        return false;
+
+    // 3D 메시용 : 깊이 테스트와 쓰기 모두 켠다.
+    D3D11_DEPTH_STENCIL_DESC enabled = {};
+    enabled.DepthEnable    = TRUE;
+    enabled.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    enabled.DepthFunc      = D3D11_COMPARISON_LESS;          // 더 가까운 픽셀만 통과
+
+    if (DX_FAILED(m_device->CreateDepthStencilState(&enabled, m_depthEnabledState.GetAddressOf()),
+                  L"CreateDepthStencilState(enabled)"))
+        return false;
+
+    // 2D 스프라이트 / UI 용 : 깊이를 보지도 쓰지도 않는다.
+    D3D11_DEPTH_STENCIL_DESC disabled = {};
+    disabled.DepthEnable    = FALSE;
+    disabled.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    disabled.DepthFunc      = D3D11_COMPARISON_ALWAYS;
+
+    if (DX_FAILED(m_device->CreateDepthStencilState(&disabled, m_depthDisabledState.GetAddressOf()),
+                  L"CreateDepthStencilState(disabled)"))
+        return false;
+
+    return true;
+}
+
+// =============================================================
+// 3D 메시 파이프라인
+// =============================================================
+bool Graphics::CreateMeshPipeline()
+{
+    // ---- 상수 버퍼 ----
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = sizeof(TerrainConstantBuffer);   // 160 바이트 (16의 배수)
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (DX_FAILED(m_device->CreateBuffer(&cbDesc, nullptr, m_meshConstantBuffer.GetAddressOf()),
+                  L"CreateBuffer(mesh constant)"))
+        return false;
+
+    // ---- 래스터라이저 상태 (S32) ----
+    D3D11_RASTERIZER_DESC solid = {};
+    solid.FillMode        = D3D11_FILL_SOLID;
+    solid.CullMode        = D3D11_CULL_BACK;    // 뒷면은 그리지 않는다(정점 순서가 맞아야 한다)
+    solid.FrontCounterClockwise = FALSE;        // 시계 방향이 앞면 (왼손 좌표계 기본)
+    solid.DepthClipEnable = TRUE;
+
+    if (DX_FAILED(m_device->CreateRasterizerState(&solid, m_rasterSolidState.GetAddressOf()),
+                  L"CreateRasterizerState(solid)"))
+        return false;
+
+    D3D11_RASTERIZER_DESC wireframe = solid;
+    wireframe.FillMode = D3D11_FILL_WIREFRAME;
+    wireframe.CullMode = D3D11_CULL_NONE;       // 뒷면 삼각형 선도 보이게 둔다
+
+    if (DX_FAILED(m_device->CreateRasterizerState(&wireframe, m_rasterWireframeState.GetAddressOf()),
+                  L"CreateRasterizerState(wireframe)"))
+        return false;
+
+    // ---- 터레인 셰이더 ----
+    Shader::Desc shaderDesc;
+    shaderDesc.vsPath = Paths::Resolve(L"Shaders/TerrainVS.hlsl");
+    shaderDesc.psPath = Paths::Resolve(L"Shaders/TerrainPS.hlsl");
+    shaderDesc.vsEntry = "main";
+    shaderDesc.psEntry = "main";
+    shaderDesc.layout = TerrainVertex::kLayout;
+    shaderDesc.layoutCount = TerrainVertex::kLayoutCount;
+    shaderDesc.cacheCompiled = (SHADER_CACHE_ENABLED != 0);
+    shaderDesc.useCache      = (SHADER_CACHE_ENABLED != 0);
+
+    m_terrainShader = std::make_shared<Shader>();
+    if (!m_terrainShader->Load(m_device.Get(), shaderDesc))
+    {
+        dxutil::DebugLog(L"[Graphics] 터레인 셰이더 로드 실패 :\n%s", m_terrainShader->GetLastError().c_str());
+        return false;
+    }
+
+#if HOT_RELOAD_ENABLED
+    ShaderManager::Get().Register("Terrain", m_terrainShader);
+#endif
+
+    return true;
+}
+
+float Graphics::GetAspectRatio() const
+{
+    if (m_height <= 0)
+        return 1.0f;
+
+    return static_cast<float>(m_width) / static_cast<float>(m_height);
+}
+
+void Graphics::SetCamera3D(FXMMATRIX view, CXMMATRIX projection, const XMFLOAT3& eyePosition)
+{
+    XMStoreFloat4x4(&m_view3D, view);
+    XMStoreFloat4x4(&m_projection3D, projection);
+    m_eyePosition = eyePosition;
+}
+
+void Graphics::DrawMesh(const Mesh& mesh,
+                        FXMMATRIX world,
+                        const XMFLOAT4& color,
+                        const XMFLOAT4& params,
+                        bool wireframe)
+{
+    if (!m_context || !mesh.IsValid() || !m_terrainShader || !m_terrainShader->IsValid())
+        return;
+
+    // 1) 상수 버퍼 갱신. HLSL 이 column-major 라 CPU 에서 전치해 넘긴다. (S12)
+    const XMMATRIX view = XMLoadFloat4x4(&m_view3D);
+    const XMMATRIX projection = XMLoadFloat4x4(&m_projection3D);
+    const XMMATRIX wvp = world * view * projection;
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(m_context->Map(m_meshConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        TerrainConstantBuffer* cb = static_cast<TerrainConstantBuffer*>(mapped.pData);
+        XMStoreFloat4x4(&cb->wvp, XMMatrixTranspose(wvp));
+        XMStoreFloat4x4(&cb->world, XMMatrixTranspose(world));
+        cb->color = color;
+        cb->params = params;
+        m_context->Unmap(m_meshConstantBuffer.Get(), 0);
+    }
+
+    // 2) 상태 설정
+    m_context->OMSetDepthStencilState(m_depthEnabledState.Get(), 0);
+    m_context->RSSetState(wireframe ? m_rasterWireframeState.Get() : m_rasterSolidState.Get());
+
+    const UINT stride = mesh.GetStride();
+    const UINT offset = 0;
+    ID3D11Buffer* vertexBuffer = mesh.GetVertexBuffer();
+
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    m_context->IASetIndexBuffer(mesh.GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);   // 32비트 인덱스
+
+    m_terrainShader->Bind(m_context.Get());
+
+    m_context->VSSetConstantBuffers(0, 1, m_meshConstantBuffer.GetAddressOf());
+    m_context->PSSetConstantBuffers(0, 1, m_meshConstantBuffer.GetAddressOf());
+
+    // 3) 그리기
+    m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
 }

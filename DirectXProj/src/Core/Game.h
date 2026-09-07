@@ -27,7 +27,8 @@ public:
 
 private:
     void RegisterComponentTypes();     // ComponentFactory 등록 (과제 5)
-    void BuildDefaultScene();          // 데모 씬 구성
+    void BuildTerrainScene();          // 터레인 쇼케이스 씬
+    void BuildSpriteDemoScene();       // 2D 스프라이트 데모 씬
     void UpdatePickingAndDrag();       // 마우스 피킹 / 선택 하이라이트 / 드래그 이동
     void UpdateEditorUI();             // Hierarchy / Inspector 입력 처리
     void DrawEditorUI();               // 두 패널을 한 번의 GDI 오버레이로 그린다
@@ -48,6 +49,7 @@ private:
     // 선택된 오브젝트는 포인터가 아니라 ID 로 들고 있는다. (과제 4 의 ObjectRegistry 규칙)
     // 그래야 선택한 오브젝트가 삭제되거나 씬을 다시 로드해도 잘못된 포인터를 쓰지 않는다.
     uint64_t m_selectedId = 0;
+    bool     m_terrainSceneActive = true;
 
     // 드래그 상태. 누른 순간의 "오브젝트 위치 - 커서 위치" 차이를 기억해 두었다가
     // 매 프레임 커서에 그 차이를 더한다. 그래야 잡은 지점이 튀지 않는다.
