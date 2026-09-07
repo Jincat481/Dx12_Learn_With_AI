@@ -3,6 +3,16 @@
 `ChatGTP_DirectXProj_학습_프롬프트_가이드.md` 하나만 보고 처음부터 다시 작성한 DirectX 11 / C++ 2D 게임 프레임워크다.
 가이드의 과제 1~6과 확장 과제(`.cso` 캐시 로드)까지 모두 구현되어 있다.
 
+## 예시 이미지
+<img width="1279" height="743" alt="step1" src="https://github.com/user-attachments/assets/a5596a18-b9be-41c5-9c03-9c2d55c60145" />
+<img width="1268" height="748" alt="step2" src="https://github.com/user-attachments/assets/7ea9ea31-ab43-4697-825c-77ba75cd0022" />
+<img width="1278" height="747" alt="image" src="https://github.com/user-attachments/assets/888ec50c-7c18-443d-bde7-2dc91cbc6a7b" />
+<img width="1270" height="751" alt="image" src="https://github.com/user-attachments/assets/77ec238a-9072-4b26-b826-7136be0e5b24" />
+<img width="1275" height="741" alt="image" src="https://github.com/user-attachments/assets/91f09859-2b79-48c4-b3b7-343b0681b07c" />
+<img width="1274" height="743" alt="image" src="https://github.com/user-attachments/assets/a5a26a01-4a80-4cd3-a186-b84433f5fc97" />
+<img width="1275" height="742" alt="image" src="https://github.com/user-attachments/assets/870dc9f3-5d4c-44e5-a2b4-3daa838cc78c" />
+
+
 ## 조작
 
 프로그램을 켜면 **메뉴**가 먼저 뜬다. 스텝 하나가 항목 하나다. 고르면 그 씬으로 들어가고 `ESC` 로 돌아온다.
