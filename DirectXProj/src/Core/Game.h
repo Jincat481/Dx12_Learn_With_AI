@@ -28,8 +28,18 @@ public:
 
 private:
     void RegisterComponentTypes();     // ComponentFactory 등록 (과제 5)
-    void BuildTerrainScene();          // 터레인 쇼케이스 씬
-    void BuildSpriteDemoScene();       // 2D 스프라이트 데모 씬
+    // 씬 구성 함수들. 메뉴 항목 하나가 이 중 하나를 부른다.
+    void BuildTerrainScene(bool heightEnabled, const std::string& sceneName);
+    void BuildSpriteDemoScene();
+
+    // 메뉴에 올라가는 항목 하나.
+    //  스텝이 늘어나면 SetupMenu 에 한 줄만 더하면 된다.
+    struct Showcase
+    {
+        std::wstring          title;
+        std::wstring          description;
+        std::function<void()> build;
+    };
 
     void SetupMenu();
     void EnterShowcase(int index);     // 메뉴에서 고른 항목으로 들어간다
@@ -54,6 +64,7 @@ private:
     enum class AppState { Menu, Showcase };
     AppState   m_state = AppState::Menu;
     MenuScreen m_menu;
+    std::vector<Showcase> m_showcases;
     int        m_currentShowcase = -1;
 
     std::wstring m_savePath;

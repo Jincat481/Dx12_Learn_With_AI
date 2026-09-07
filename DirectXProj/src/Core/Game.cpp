@@ -107,9 +107,9 @@ void Game::RegisterComponentTypes()
 // 터레인 쇼케이스 - 스텝 1 : 평면 그리드
 //  카메라 오브젝트 하나와 터레인 오브젝트 하나로 시작한다.
 // -------------------------------------------------------------
-void Game::BuildTerrainScene()
+void Game::BuildTerrainScene(bool heightEnabled, const std::string& sceneName)
 {
-    Scene* scene = SceneManager::Get().CreateScene("TerrainShowcase");
+    Scene* scene = SceneManager::Get().CreateScene(sceneName);
     if (!scene)
         return;
 
@@ -122,6 +122,7 @@ void Game::BuildTerrainScene()
     GameObject* terrainObject = scene->CreateGameObject("Terrain");
     TerrainRenderer* terrain = terrainObject->AddComponent<TerrainRenderer>();
     terrain->SetGrid(64, 64, 2.0f);   // 64 x 64 칸, 칸 한 변 2 → 128 x 128 크기
+    terrain->SetHeightEnabled(heightEnabled);
 }
 
 void Game::BuildSpriteDemoScene()
@@ -175,11 +176,35 @@ int Game::Run()
 // -------------------------------------------------------------
 void Game::SetupMenu()
 {
-    m_menu.SetEntries({
-        { L"터레인 쇼케이스",   L"절차적 하이트맵 지형 · 궤도 카메라 · 와이어프레임 (스텝 1~2)" },
-        { L"2D 스프라이트 데모", L"계층 Transform · 피킹 · 드래그 · Hierarchy / Inspector" },
-        { L"종료",             L"프로그램을 끝낸다" },
-    });
+    m_showcases.clear();
+
+    // ---- 터레인 쇼케이스 : 스텝별로 하나씩 ----
+    m_showcases.push_back({
+        L"터레인 · 스텝 1  평면 그리드",
+        L"격자 메시 생성 · 원근 카메라 · 깊이 버퍼 (S27~S35)",
+        [this]() { BuildTerrainScene(/*heightEnabled*/ false, "Terrain_Step1"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 2  하이트맵 지형",
+        L"fBm 노이즈 높이 · 중앙 차분 법선 · 램버트 조명 (S36~S40)",
+        [this]() { BuildTerrainScene(/*heightEnabled*/ true, "Terrain_Step2"); } });
+
+    // ---- 그 밖의 기능 ----
+    m_showcases.push_back({
+        L"2D 스프라이트 데모",
+        L"계층 Transform · 피킹 · 드래그 · Hierarchy / Inspector",
+        [this]() { BuildSpriteDemoScene(); } });
+
+    // 메뉴 항목 = 쇼케이스 목록 + 종료
+    std::vector<MenuScreen::Entry> entries;
+    entries.reserve(m_showcases.size() + 1);
+
+    for (const Showcase& showcase : m_showcases)
+        entries.push_back({ showcase.title, showcase.description });
+
+    entries.push_back({ L"종료", L"프로그램을 끝낸다" });
+
+    m_menu.SetEntries(std::move(entries));
 }
 
 void Game::UpdateMenuFrame()
@@ -210,8 +235,8 @@ void Game::UpdateMenuFrame()
 
 void Game::EnterShowcase(int index)
 {
-    // 마지막 항목은 종료
-    if (index == 2)
+    // 목록 범위를 넘어가면 마지막 항목(종료)이다.
+    if (index < 0 || index >= static_cast<int>(m_showcases.size()))
     {
         ::PostQuitMessage(0);
         return;
@@ -221,15 +246,13 @@ void Game::EnterShowcase(int index)
     m_dragging = false;
     m_currentShowcase = index;
 
-    if (index == 0)
-        BuildTerrainScene();
-    else
-        BuildSpriteDemoScene();
+    m_showcases[index].build();
 
     SceneManager::Get().Initialize(m_graphics.get());
     m_state = AppState::Showcase;
 
-    dxutil::DebugLog(L"[Game] 쇼케이스 진입 : %d (ESC 로 메뉴 복귀)", index);
+    dxutil::DebugLog(L"[Game] 쇼케이스 진입 : %s (ESC 로 메뉴 복귀)",
+                     m_showcases[index].title.c_str());
 }
 
 void Game::ReturnToMenu()
@@ -585,9 +608,17 @@ void Game::UpdateWindowTitle()
             selectedName = selected->GetName();
     }
 
-    wchar_t title[256];
+    const wchar_t* showcaseName = L"메뉴";
+    if (m_state == AppState::Showcase &&
+        m_currentShowcase >= 0 && m_currentShowcase < static_cast<int>(m_showcases.size()))
+    {
+        showcaseName = m_showcases[m_currentShowcase].title.c_str();
+    }
+
+    wchar_t title[320];
     _snwprintf_s(title, _countof(title), _TRUNCATE,
-                 L"DirectXProj | FPS %.0f | dt %.3fms | GameObject %zu | Component %zu | 선택 %S",
+                 L"DirectXProj — %s | FPS %.0f | dt %.3fms | GameObject %zu | Component %zu | 선택 %S",
+                 showcaseName,
                  time.GetFPS(),
                  time.GetDeltaTime() * 1000.0f,
                  scene ? scene->GetGameObjectCount() : 0,
