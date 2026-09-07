@@ -170,7 +170,7 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     GameObject* cameraObject = scene->CreateGameObject("MainCamera");
     Camera* camera = cameraObject->AddComponent<Camera>();
 
-    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds)
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite)
     {
         // 지평선과 하늘이 함께 보이도록 낮게 서서 앞을 본다.
         camera->SetPosition(XMFLOAT3(0.0f, 70.0f, -260.0f));
@@ -196,11 +196,11 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     // 하늘은 지형보다 먼저 그려야 하므로 씬에 먼저 넣는다.
     //  (Scene 은 소유 순서대로 Render 한다)
     SkyRenderer* sky = nullptr;
-    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds)
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite)
     {
         GameObject* skyObject = scene->CreateGameObject("Sky");
         sky = skyObject->AddComponent<SkyRenderer>();
-        sky->SetCloudsEnabled(mode == ChunkedMode::Clouds);
+        sky->SetCloudsEnabled(mode != ChunkedMode::Sky);
     }
 
     terrain->SetCullingEnabled(true);
@@ -235,6 +235,16 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         terrain->SetLodEnabled(true);
         terrain->SetSkirtEnabled(true);
         terrain->SetMorphEnabled(true);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
+        break;
+
+    case ChunkedMode::Infinite:
+        // 스텝 10 : 청크를 재활용해 끝없이 이어지는 지형.
+        //  이미지 하이트맵은 범위가 정해져 있어 쓸 수 없다. 노이즈여야 한다.
+        terrain->SetLodEnabled(true);
+        terrain->SetSkirtEnabled(true);
+        terrain->SetMorphEnabled(true);
+        terrain->SetInfiniteEnabled(true);
         terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
         break;
     }
@@ -358,6 +368,11 @@ void Game::SetupShowcaseList()
         L"터레인 · 스텝 9  동적 왜곡 구름",
         L"노이즈로 노이즈를 미는 도메인 워핑 · 시간에 따라 흐른다 (S56~S57)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Clouds, "Terrain_Step9"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 스텝 10  무한 지형 청크",
+        L"카메라를 따라 청크를 재활용 · 프레임당 재생성 개수 제한 (S58)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Infinite, "Terrain_Step10"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -546,6 +561,14 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"K", L"스커트", chunked->IsSkirtEnabled() ? L"켬" : L"끔", true });
         lines.push_back({ L"M", L"지오모핑", chunked->IsMorphEnabled() ? L"켬" : L"끔", true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
+
+        if (chunked->IsInfiniteEnabled())
+        {
+            wchar_t rebuilt[48];
+            _snwprintf_s(rebuilt, _countof(rebuilt), _TRUNCATE, L"이번 프레임 %d개", chunked->GetRebuiltThisFrame());
+            lines.push_back({ L"J", L"무한 지형", L"켬", true });
+            lines.push_back({ L"", L"청크 재생성", rebuilt, true });
+        }
 
         // 하늘이 있는 씬이면 구름 조작도 보여 준다.
         for (const auto& object : scene->GetGameObjects())
@@ -853,6 +876,11 @@ void Game::HandleFrameEndCommands()
             }
             if (input.GetKeyDown('N'))
                 chunked->Regenerate(static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 7u));
+            if (input.GetKeyDown('J'))
+            {
+                chunked->ToggleInfinite();
+                dxutil::DebugLog(L"[Terrain] 무한 지형 %s", chunked->IsInfiniteEnabled() ? L"켬" : L"끔");
+            }
 
             continue;   // 청크 지형은 여기까지
         }

@@ -65,6 +65,15 @@ public:
     bool IsMorphEnabled() const { return m_morphEnabled; }
     void ToggleMorph() { m_morphEnabled = !m_morphEnabled; }
 
+    // ---- 스텝 10 : 무한 지형 ----
+    //  카메라가 청크 한 칸을 넘어갈 때마다, 뒤로 밀려난 청크를
+    //  반대쪽 좌표로 다시 만들어 재활용한다. 배열 크기는 그대로다.
+    void SetInfiniteEnabled(bool enabled);
+    bool IsInfiniteEnabled() const { return m_infiniteEnabled; }
+    void ToggleInfinite() { SetInfiniteEnabled(!m_infiniteEnabled); }
+
+    int GetRebuiltThisFrame() const { return m_rebuiltThisFrame; }
+
     void SetLodEnabled(bool enabled) { m_lodEnabled = enabled; }
     bool IsLodEnabled() const { return m_lodEnabled; }
     void ToggleLod() { m_lodEnabled = !m_lodEnabled; }
@@ -76,6 +85,10 @@ public:
 private:
     bool RebuildChunks();
     void LoadSplatLayers();
+    void UpdateInfiniteChunks(const DirectX::XMFLOAT3& eye);
+    bool BuildChunkAt(size_t slot, int worldChunkX, int worldChunkZ);
+    void CullChunksDirectly(const Frustum& frustum);
+
     int  SelectLod(const DirectX::XMFLOAT3& chunkCenter, const DirectX::XMFLOAT3& eye) const;
     float SelectMorph(const DirectX::XMFLOAT3& chunkCenter, const DirectX::XMFLOAT3& eye) const;
     DirectX::XMFLOAT4 GetDebugColor(int chunkIndex, int lod) const;
@@ -108,6 +121,15 @@ private:
     bool m_lodEnabled = false;
     bool m_skirtEnabled = true;
     bool m_morphEnabled = true;
+
+    // 무한 지형 : 슬롯마다 지금 담당하는 월드 청크 좌표를 기억한다.
+    struct ChunkSlot { int worldX = 0; int worldZ = 0; bool valid = false; };
+    std::vector<ChunkSlot> m_slots;
+    bool m_infiniteEnabled = false;
+    int  m_centerChunkX = 0;
+    int  m_centerChunkZ = 0;
+    int  m_rebuildBudget = 3;      // 한 프레임에 다시 만들 청크 수 상한
+    int  m_rebuiltThisFrame = 0;
 
     DisplayMode m_displayMode = DisplayMode::ChunkColor;
 

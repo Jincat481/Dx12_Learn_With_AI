@@ -7,6 +7,7 @@
 #include "Utils/Paths.h"
 
 #include <limits>
+#include <algorithm>
 
 using namespace DirectX;
 
@@ -81,23 +82,22 @@ bool ChunkedTerrainRenderer::RebuildChunks()
     m_chunks.clear();
     m_chunks.resize(static_cast<size_t>(m_chunksX) * m_chunksZ);
 
-    const float chunkSize = m_cellsPerChunk * m_cellSize;
-    const float halfWidth = m_chunksX * chunkSize * 0.5f;
-    const float halfDepth = m_chunksZ * chunkSize * 0.5f;
+    m_slots.assign(m_chunks.size(), ChunkSlot{});
+
+    // 슬롯 (cx, cz) 가 담당할 월드 청크 좌표는 중심에서의 상대 위치로 정한다.
+    //  유한 지형이면 중심이 0 이라 원점 대칭으로 놓이고,
+    //  무한 지형이면 중심이 카메라를 따라 움직인다.
+    const int halfX = m_chunksX / 2;
+    const int halfZ = m_chunksZ / 2;
 
     for (int cz = 0; cz < m_chunksZ; ++cz)
     {
         for (int cx = 0; cx < m_chunksX; ++cx)
         {
-            const float originX = -halfWidth + cx * chunkSize;
-            const float originZ = halfDepth - cz * chunkSize;   // +Z 에서 -Z 로 내려간다
-
             const size_t index = static_cast<size_t>(cz) * m_chunksX + cx;
-            m_chunks[index].SetSkirtEnabled(m_skirtEnabled);
-            m_chunks[index].Build(m_graphics->GetDevice(),
-                                  originX, originZ,
-                                  m_cellsPerChunk, m_cellSize,
-                                  &m_height);
+            BuildChunkAt(index,
+                         m_centerChunkX + (cx - halfX),
+                         m_centerChunkZ + (halfZ - cz));   // cz 가 커질수록 -Z
         }
     }
 
@@ -127,6 +127,124 @@ bool ChunkedTerrainRenderer::RebuildChunks()
     dxutil::DebugLog(L"[ChunkedTerrain] 청크 %d x %d (칸 %d, 총 %zu개)",
                      m_chunksX, m_chunksZ, m_cellsPerChunk, m_chunks.size());
     return true;
+}
+
+// 슬롯 하나를 지정한 월드 청크 좌표로 다시 만든다.
+bool ChunkedTerrainRenderer::BuildChunkAt(size_t slot, int worldChunkX, int worldChunkZ)
+{
+    if (slot >= m_chunks.size() || !m_graphics || !m_graphics->GetDevice())
+        return false;
+
+    const float chunkSize = m_cellsPerChunk * m_cellSize;
+
+    // 청크 (cx, cz) 는 X 로 [cx, cx+1), Z 로 [cz, cz+1) 구간을 담당한다.
+    // TerrainChunk 는 originZ 에서 -Z 방향으로 내려가므로 위쪽 모서리를 넘긴다.
+    const float originX = worldChunkX * chunkSize;
+    const float originZ = (worldChunkZ + 1) * chunkSize;
+
+    m_chunks[slot].SetSkirtEnabled(m_skirtEnabled);
+    const bool ok = m_chunks[slot].Build(m_graphics->GetDevice(),
+                                         originX, originZ,
+                                         m_cellsPerChunk, m_cellSize,
+                                         &m_height);
+
+    m_slots[slot] = ChunkSlot{ worldChunkX, worldChunkZ, ok };
+    return ok;
+}
+
+void ChunkedTerrainRenderer::SetInfiniteEnabled(bool enabled)
+{
+    if (m_infiniteEnabled == enabled)
+        return;
+
+    m_infiniteEnabled = enabled;
+
+    // 유한 지형으로 돌아갈 때는 원점 중심으로 되돌린다.
+    if (!enabled)
+    {
+        m_centerChunkX = 0;
+        m_centerChunkZ = 0;
+        m_dirty = true;
+    }
+}
+
+// -------------------------------------------------------------
+// 무한 지형 (S58)
+//  청크 배열의 크기는 그대로 두고, 카메라가 한 칸 움직일 때마다
+//  뒤로 밀려난 슬롯을 앞쪽 좌표로 다시 만든다(재활용).
+//  높이가 함수(노이즈)라서 좌표만 주면 어디든 만들 수 있기에 가능하다.
+//  이미지 하이트맵은 범위가 정해져 있어 이 방식이 통하지 않는다.
+// -------------------------------------------------------------
+void ChunkedTerrainRenderer::UpdateInfiniteChunks(const XMFLOAT3& eye)
+{
+    m_rebuiltThisFrame = 0;
+
+    const float chunkSize = m_cellsPerChunk * m_cellSize;
+    if (chunkSize <= 0.0f)
+        return;
+
+    m_centerChunkX = static_cast<int>(std::floor(eye.x / chunkSize));
+    m_centerChunkZ = static_cast<int>(std::floor(eye.z / chunkSize));
+
+    const int halfX = m_chunksX / 2;
+    const int halfZ = m_chunksZ / 2;
+
+    // 카메라에 가까운 것부터 다시 만든다. 한 프레임에 다 만들면 화면이 끊긴다.
+    struct Pending { size_t slot; int worldX; int worldZ; int distance; };
+    std::vector<Pending> pending;
+
+    for (int cz = 0; cz < m_chunksZ; ++cz)
+    {
+        for (int cx = 0; cx < m_chunksX; ++cx)
+        {
+            const size_t index = static_cast<size_t>(cz) * m_chunksX + cx;
+
+            const int wantX = m_centerChunkX + (cx - halfX);
+            const int wantZ = m_centerChunkZ + (halfZ - cz);
+
+            const ChunkSlot& slot = m_slots[index];
+            if (slot.valid && slot.worldX == wantX && slot.worldZ == wantZ)
+                continue;
+
+            const int dx = cx - halfX;
+            const int dz = cz - halfZ;
+            pending.push_back({ index, wantX, wantZ, dx * dx + dz * dz });
+        }
+    }
+
+    if (pending.empty())
+        return;
+
+    std::sort(pending.begin(), pending.end(),
+              [](const Pending& a, const Pending& b) { return a.distance < b.distance; });
+
+    const int budget = (std::min)(m_rebuildBudget, static_cast<int>(pending.size()));
+    for (int i = 0; i < budget; ++i)
+    {
+        BuildChunkAt(pending[i].slot, pending[i].worldX, pending[i].worldZ);
+        ++m_rebuiltThisFrame;
+    }
+}
+
+// 무한 지형에서는 청크가 계속 움직이므로 쿼드트리를 매번 다시 세우기 어렵다.
+// 청크 수가 수백 개 수준이라 하나씩 검사해도 충분하다.
+void ChunkedTerrainRenderer::CullChunksDirectly(const Frustum& frustum)
+{
+    m_visibleChunks.clear();
+
+    for (int i = 0; i < static_cast<int>(m_chunks.size()); ++i)
+    {
+        if (!m_chunks[i].IsValid())
+            continue;
+
+        if (frustum.IntersectsAABB(m_chunks[i].GetCenter(), m_chunks[i].GetExtents()))
+            m_visibleChunks.push_back(i);
+    }
+
+    m_stats = terrain::TerrainQuadTree::Stats{};
+    m_stats.totalChunks = static_cast<int>(m_chunks.size());
+    m_stats.visibleChunks = static_cast<int>(m_visibleChunks.size());
+    m_stats.nodesTested = static_cast<int>(m_chunks.size());
 }
 
 // -------------------------------------------------------------
@@ -197,7 +315,19 @@ void ChunkedTerrainRenderer::Update()
 
     const XMFLOAT3 eye = m_graphics->GetEyePosition3D();
 
-    if (m_cullingEnabled && m_quadTree.IsValid())
+    // 무한 지형이면 카메라를 따라 청크를 재활용한다.
+    if (m_infiniteEnabled)
+        UpdateInfiniteChunks(eye);
+    else
+        m_rebuiltThisFrame = 0;
+
+    if (m_cullingEnabled && m_infiniteEnabled)
+    {
+        Frustum frustum;
+        frustum.BuildFromViewProjection(m_graphics->GetView3D() * m_graphics->GetProjection3D());
+        CullChunksDirectly(frustum);
+    }
+    else if (m_cullingEnabled && m_quadTree.IsValid())
     {
         Frustum frustum;
         frustum.BuildFromViewProjection(m_graphics->GetView3D() * m_graphics->GetProjection3D());
