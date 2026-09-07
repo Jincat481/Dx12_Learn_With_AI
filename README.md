@@ -6,7 +6,7 @@
 ## 예시 이미지
 ![스텝1](https://example.com)
 ![스텝2](https://example.com)
-![스텝3](https://example.com)
+![스텝3]<img width="1278" height="747" alt="image" src="https://github.com/user-attachments/assets/888ec50c-7c18-443d-bde7-2dc91cbc6a7b" />
 ![스텝4](https://example.com)
 ![스텝5](https://example.com)
 ![스텝6](https://example.com)
