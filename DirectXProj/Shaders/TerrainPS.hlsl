@@ -22,6 +22,7 @@ struct PSInput
     float3 worldPos : POSITION;
     float3 normal   : NORMAL;
     float2 uv       : TEXCOORD0;
+    float4 biome    : TEXCOORD1;
 };
 
 // 화면 기준으로 굵기가 일정한 격자선을 그린다.
@@ -125,6 +126,47 @@ float3 SplatColor(float2 uv, float3 worldPos, float3 normal, float height01, flo
 }
 
 // -------------------------------------------------------------
+// 바이옴 (S73)
+//  같은 네 장의 텍스처로 네 바이옴을 만든다. 바이옴마다 레이어를 고르는 규칙이 다르다.
+//   사막 : 흙을 모래색으로 물들이고, 가파르면 붉은 바위
+//   초원 : 풀, 가파르면 바위
+//   숲   : 풀을 짙게, 가파르면 바위
+//   설원 : 눈, 아주 가파른 곳만 바위가 드러난다
+//  정점에서 넘어온 가중치로 네 결과를 섞는다. 경계는 가중치가 보간되며 자연스럽게 번진다.
+// -------------------------------------------------------------
+float3 BiomeSplatColor(float2 uv, float3 worldPos, float3 normal, float slope, float4 biome)
+{
+    float3 weights = TriplanarWeights(normal);
+
+    float3 dirt  = SampleLayer(gDirt,  uv, worldPos, weights);
+    float3 grass = SampleLayer(gGrass, uv, worldPos, weights);
+    float3 rock  = SampleLayer(gRock,  uv, worldPos, weights);
+    float3 snow  = SampleLayer(gSnow,  uv, worldPos, weights);
+
+    float rockAmount = smoothstep(0.12f, 0.40f, slope);
+
+    float3 desert = lerp(dirt * float3(1.45f, 1.18f, 0.78f), rock * float3(1.15f, 0.92f, 0.78f), rockAmount * 0.8f);
+    float3 plains = lerp(grass, rock, rockAmount);
+    float3 forest = lerp(grass * float3(0.55f, 0.72f, 0.50f), rock * 0.85f, rockAmount);
+    float3 tundra = lerp(snow, rock, smoothstep(0.30f, 0.55f, slope));
+
+    float total = max(biome.x + biome.y + biome.z + biome.w, 1e-4f);
+    return (desert * biome.x + plains * biome.y + forest * biome.z + tundra * biome.w) / total;
+}
+
+// 디버그 : 가중치를 그대로 색으로 (사막 노랑 · 초원 연두 · 숲 초록 · 설원 흰색)
+float3 BiomeDebugColor(float4 biome)
+{
+    const float3 desert = float3(0.93f, 0.78f, 0.35f);
+    const float3 plains = float3(0.55f, 0.85f, 0.35f);
+    const float3 forest = float3(0.12f, 0.45f, 0.18f);
+    const float3 tundra = float3(0.92f, 0.95f, 1.00f);
+
+    float total = max(biome.x + biome.y + biome.z + biome.w, 1e-4f);
+    return (desert * biome.x + plains * biome.y + forest * biome.z + tundra * biome.w) / total;
+}
+
+// -------------------------------------------------------------
 // 브러시 미리보기 (S68)
 //  CPU 가 레이로 찾은 점과 반경을 받아, 그 원을 지형 표면에 직접 그린다.
 //  원을 따로 메시로 만들면 울퉁불퉁한 지형 위에서 떠 보이거나 파묻힌다.
@@ -182,10 +224,16 @@ float4 main(PSInput input) : SV_TARGET
     {
         baseColor = gColor.rgb;
     }
+    else if (gSurface.w > 1.5f)
+    {
+        baseColor = BiomeDebugColor(input.biome);
+    }
     else if (useSplat)
     {
         float slope = 1.0f - saturate(normal.y);
-        baseColor = SplatColor(input.uv, input.worldPos, normal, height01, slope);
+        baseColor = (gSurface.w > 0.5f)
+            ? BiomeSplatColor(input.uv, input.worldPos, normal, slope, input.biome)
+            : SplatColor(input.uv, input.worldPos, normal, height01, slope);
     }
     else if (useHeight)
     {

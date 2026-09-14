@@ -137,6 +137,10 @@ namespace terrain
                 }
                 vertex.morphTargets = XMFLOAT4(targets[0], targets[1], targets[2], targets[3]);
 
+                // 바이옴 가중치 (S73)
+                vertex.biome = height ? height->SampleBiomeWeights(x, z)
+                                      : XMFLOAT4(0.0f, 1.0f, 0.0f, 0.0f);
+
                 vertices.push_back(vertex);
             }
         }

@@ -34,6 +34,7 @@ public:
         HeightColor,   // 높이 색상
         ChunkColor,    // 청크마다 다른 색 (분할이 눈에 보이게)
         LodColor,      // LOD 단계마다 다른 색
+        BiomeColor,    // 바이옴 가중치를 색으로 (S73)
         Wireframe,     // 와이어프레임
         Count
     };
@@ -83,6 +84,12 @@ public:
     void SetTriplanarEnabled(bool enabled) { m_triplanarEnabled = enabled; }
     bool IsTriplanarEnabled() const { return m_triplanarEnabled; }
     void ToggleTriplanar() { m_triplanarEnabled = !m_triplanarEnabled; }
+
+    // ---- 에디터 연결 : 바이옴 (S73) ----
+    //  켜고 끄면 높이 식이 바뀌므로 지형을 다시 만든다. 편집 격자는 이미 구운 높이라 쓰지 않는다.
+    void SetBiomesEnabled(bool enabled);
+    bool IsBiomesEnabled() const { return m_height.GetParams().biomes; }
+    void ToggleBiomes() { SetBiomesEnabled(!IsBiomesEnabled()); }
 
     // ---- 보강 : 백그라운드 생성 (S65) ----
     //  켜면 새 청크의 정점 계산은 작업 스레드가 하고, 메인 스레드는 버퍼만 만든다.

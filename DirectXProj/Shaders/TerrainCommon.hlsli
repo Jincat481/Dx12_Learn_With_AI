@@ -17,7 +17,7 @@ cbuffer TerrainConstants : register(b0)
     float4   gSplat;         // x : 타일 반복   y : 스플래팅   z : 디버그 단색   w : 모프 계수
     float4   gLodSelect;     // 현재 LOD 성분만 1
     float4   gEyePos;        // xyz : 카메라 위치
-    float4   gSurface;       // x : 트라이플래너(0/1)   y : 타일 한 장의 월드 크기   z : 블렌드 날카로움
+    float4   gSurface;       // x : 트라이플래너(0/1)   y : 타일 한 장의 월드 크기   z : 블렌드 날카로움   w : 바이옴 (0 끔, 1 텍스처, 2 디버그 색)
     float4   gFogColor;      // rgb : 안개 색   a : 켜짐(0/1)
     float4   gFogParams;     // x : 시작 거리   y : 끝 거리   z : 밀도   w : 태양 산란 세기
     float4   gBrush;         // xy : 브러시 중심(월드 xz)   z : 반경   w : 도구 번호 + 1 (0 이면 끔)

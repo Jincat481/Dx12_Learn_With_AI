@@ -11,6 +11,7 @@ struct VSInput
     float3 normal       : NORMAL;
     float2 uv           : TEXCOORD0;
     float4 morphTargets : TEXCOORD1;   // LOD 1~4 에서의 높이
+    float4 biome        : TEXCOORD2;   // 사막 / 초원 / 숲 / 설원 가중치 (S73)
 };
 
 struct VSOutput
@@ -19,6 +20,7 @@ struct VSOutput
     float3 worldPos : POSITION;
     float3 normal   : NORMAL;
     float2 uv       : TEXCOORD0;
+    float4 biome    : TEXCOORD1;
 };
 
 VSOutput main(VSInput input)
@@ -42,5 +44,6 @@ VSOutput main(VSInput input)
     output.normal = normalize(mul(input.normal, (float3x3)gWorld));
 
     output.uv = input.uv;
+    output.biome = input.biome;   // 삼각형 안에서 보간되어 경계가 부드럽게 섞인다
     return output;
 }

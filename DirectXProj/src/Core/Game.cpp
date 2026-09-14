@@ -175,7 +175,7 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     GameObject* cameraObject = scene->CreateGameObject("MainCamera");
     Camera* camera = cameraObject->AddComponent<Camera>();
 
-    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite)
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite || mode == ChunkedMode::Biomes)
     {
         // 지평선과 하늘이 함께 보이도록 낮게 서서 앞을 본다.
         camera->SetPosition(XMFLOAT3(0.0f, 70.0f, -260.0f));
@@ -196,12 +196,24 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     terrain::HeightParams height;
     height.amplitude = 60.0f;
     height.frequency = 0.006f;
+
+    if (mode == ChunkedMode::Biomes)
+    {
+        // 바이옴 하나하나가 수백 단위로 넓으므로 더 멀리까지 보이게 청크를 늘린다.
+        // 24 x 24 청크 = 1536 x 1536. 작업 스레드가 있어 스트리밍은 버틴다.
+        terrain->SetGrid(24, 24, 16, 4.0f);
+        height.amplitude = 85.0f;
+        height.frequency = 0.005f;
+        height.biomes = true;
+        height.biomeFrequency = 0.0022f;
+    }
+
     terrain->SetHeightParams(height);
 
     // 하늘은 지형보다 먼저 그려야 하므로 씬에 먼저 넣는다.
     //  (Scene 은 소유 순서대로 Render 한다)
     SkyRenderer* sky = nullptr;
-    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite)
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite || mode == ChunkedMode::Biomes)
     {
         GameObject* skyObject = scene->CreateGameObject("Sky");
         sky = skyObject->AddComponent<SkyRenderer>();
@@ -212,6 +224,8 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         //  무한 지형 : 스트리밍 반경 안에서 반드시 완전히 덮어, 아직 없는 청크를 가린다.
         if (mode == ChunkedMode::Infinite)
             sky->SetFogRange(60.0f, terrain->GetStreamingRadius() - 32.0f, 0.0028f);
+        else if (mode == ChunkedMode::Biomes)
+            sky->SetFogRange(250.0f, terrain->GetStreamingRadius() - 32.0f, 0.0007f);
         else
             sky->SetFogRange(150.0f, 950.0f, 0.0016f);
     }
@@ -259,6 +273,17 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         terrain->SetMorphEnabled(true);
         terrain->SetInfiniteEnabled(true);
         terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
+        break;
+
+    case ChunkedMode::Biomes:
+        // 에디터 연결 : 바이옴 (S73). 무한 지형 위에 기후를 얹는다.
+        terrain->SetLodEnabled(true);
+        terrain->SetSkirtEnabled(true);
+        terrain->SetMorphEnabled(true);
+        terrain->SetInfiniteEnabled(true);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
+        camera->SetPosition(XMFLOAT3(0.0f, 280.0f, -420.0f));
+        camera->SetAngles(0.0f, -24.0f);
         break;
     }
 }
@@ -472,6 +497,11 @@ void Game::SetupShowcaseList()
         L"터레인 에디터 · 지형 브러시",
         L"마우스 레이 피킹 · 올리기/내리기/평탄화/부드럽게 · 바뀐 청크만 재생성 · 저장 (S67~S70)",
         [this]() { BuildTerrainEditorScene(); } });
+
+    m_showcases.push_back({
+        L"터레인 에디터 연결 · 바이옴",
+        L"온도 · 습도 노이즈 → 바이옴 가중치 · 바이옴마다 다른 높이 식 · 정점 속성으로 넘기기 (S73)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Biomes, "Terrain_Biomes"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -733,6 +763,9 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"K", L"스커트", onOff(chunked->IsSkirtEnabled()), true });
         lines.push_back({ L"M", L"지오모핑", onOff(chunked->IsMorphEnabled()), true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
+
+        if (!chunked->IsEditable())
+            lines.push_back({ L"Y", L"바이옴", onOff(chunked->IsBiomesEnabled()), true });
 
         if (chunked->IsInfiniteEnabled())
         {
@@ -1106,6 +1139,11 @@ void Game::HandleFrameEndCommands()
             {
                 chunked->ToggleAsyncBuild();
                 dxutil::DebugLog(L"[Terrain] 백그라운드 생성 %s", chunked->IsAsyncBuildEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('Y'))
+            {
+                chunked->ToggleBiomes();
+                dxutil::DebugLog(L"[Terrain] 바이옴 %s", chunked->IsBiomesEnabled() ? L"켬" : L"끔");
             }
 
             continue;   // 청크 지형은 여기까지

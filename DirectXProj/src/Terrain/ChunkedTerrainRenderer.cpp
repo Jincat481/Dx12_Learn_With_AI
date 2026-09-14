@@ -621,6 +621,13 @@ void ChunkedTerrainRenderer::Render()
     const bool debugColor = (m_displayMode == DisplayMode::ChunkColor ||
                              m_displayMode == DisplayMode::LodColor);
 
+    // 바이옴 : 0 끔, 1 스플래팅에 바이옴 규칙 적용, 2 가중치를 색으로 (S73)
+    float biomeMode = 0.0f;
+    if (m_displayMode == DisplayMode::BiomeColor)
+        biomeMode = 2.0f;
+    else if (splat && IsBiomesEnabled())
+        biomeMode = 1.0f;
+
     for (int index : m_visibleChunks)
     {
         if (index < 0 || index >= static_cast<int>(m_chunks.size()))
@@ -651,7 +658,7 @@ void ChunkedTerrainRenderer::Render()
         // 트라이플래너 (S63) : 청크 하나에 6장 반복하던 것과 같은 크기로 월드 좌표에서 찍는다.
         draw.surface = XMFLOAT4(m_triplanarEnabled ? 1.0f : 0.0f,
                                 (m_cellsPerChunk * m_cellSize) / 6.0f,
-                                4.0f, 0.0f);
+                                4.0f, biomeMode);
         draw.brush = m_brushPreview;
 
         // 현재 LOD 에 해당하는 모프 타깃만 고르도록 성분 하나만 1 로 둔다.
@@ -698,6 +705,7 @@ const wchar_t* ChunkedTerrainRenderer::GetDisplayModeName() const
     case DisplayMode::HeightColor: return L"높이 색상";
     case DisplayMode::ChunkColor:  return L"청크 색상";
     case DisplayMode::LodColor:    return L"LOD 색상";
+    case DisplayMode::BiomeColor:  return L"바이옴 색상";
     case DisplayMode::Wireframe:   return L"와이어프레임";
     default:                       return L"-";
     }
@@ -876,6 +884,8 @@ void ChunkedTerrainRenderer::ToJson(json::Value& out) const
     out["octaves"]     = json::Value(height.octaves);
     out["persistence"] = json::Value(height.persistence);
     out["lacunarity"]  = json::Value(height.lacunarity);
+    out["biomes"]         = json::Value(height.biomes);
+    out["biomeFrequency"] = json::Value(height.biomeFrequency);
 
     // 편집한 높이는 float 수만 개다. JSON 에는 경로만 적고 값은 옆의 이진 파일에 둔다.
     if (m_editGrid)
@@ -919,6 +929,8 @@ void ChunkedTerrainRenderer::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("octaves"))     height.octaves     = value->AsInt(height.octaves);
     if (const json::Value* value = in.Find("persistence")) height.persistence = value->AsFloat(height.persistence);
     if (const json::Value* value = in.Find("lacunarity"))  height.lacunarity  = value->AsFloat(height.lacunarity);
+    if (const json::Value* value = in.Find("biomes"))         height.biomes         = value->AsBool(height.biomes);
+    if (const json::Value* value = in.Find("biomeFrequency")) height.biomeFrequency = value->AsFloat(height.biomeFrequency);
 
     m_editGrid.reset();
     m_height.SetGrid(nullptr);
@@ -940,5 +952,23 @@ void ChunkedTerrainRenderer::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("infinite"))
         SetInfiniteEnabled(value->AsBool(false));
 
+    m_dirty = true;
+}
+
+// =============================================================
+// 바이옴 (S73)
+// =============================================================
+void ChunkedTerrainRenderer::SetBiomesEnabled(bool enabled)
+{
+    // 편집 격자는 이미 구운 높이다. 기후를 바꿔도 격자 값은 그대로이므로 막는다.
+    if (IsEditable())
+        return;
+
+    terrain::HeightParams params = m_height.GetParams();
+    if (params.biomes == enabled)
+        return;
+
+    params.biomes = enabled;
+    m_height.SetParams(params);
     m_dirty = true;
 }

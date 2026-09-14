@@ -51,6 +51,10 @@ namespace terrain
         float lacunarity = 2.0f;     // 옥타브마다 주파수에 곱하는 값
         float flatten = 1.0f;        // 0 이면 완전 평면(스텝 1 과 같은 결과)
 
+        // 바이옴 (S73) : 온도 · 습도 노이즈로 지역마다 다른 높이 식을 섞는다
+        bool  biomes = false;
+        float biomeFrequency = 0.0022f;   // 기후 노이즈 주파수. 낮을수록 바이옴 하나가 넓다
+
         // 이미지 모드에서 월드 좌표를 UV 로 바꿀 때 쓰는 지형 크기
         float worldWidth = 128.0f;
         float worldDepth = 128.0f;
@@ -80,11 +84,18 @@ namespace terrain
         //  기울기 (dh/dx, dh/dz) 를 알면 법선은 (-dh/dx, 1, -dh/dz) 를 정규화한 것이다.
         DirectX::XMFLOAT3 SampleNormal(float x, float z, float step) const;
 
+        // 바이옴 가중치 (S73) : x 사막, y 초원, z 숲, w 설원. 합이 1 이다.
+        //  바이옴을 끈 지형은 항상 초원(0, 1, 0, 0)이다.
+        DirectX::XMFLOAT4 SampleBiomeWeights(float x, float z) const;
+
     private:
         float BaseNoise(float x, float z) const;    // 설정에 따라 아래 둘 중 하나를 부른다
         float ValueNoise(float x, float z) const;
         float PerlinNoise(float x, float z) const;
         float FractalNoise(float x, float z) const;
+
+        float BiomeHeight(float x, float z) const;
+        void  SampleClimate(float x, float z, float& temperature, float& moisture) const;
 
         float SampleImage(float x, float z) const;
 

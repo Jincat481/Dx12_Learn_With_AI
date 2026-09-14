@@ -31,7 +31,9 @@ struct SpriteConstantBuffer
 //      offset  0 : POSITION (R32G32B32_FLOAT)
 //      offset 12 : NORMAL   (R32G32B32_FLOAT)
 //      offset 24 : TEXCOORD (R32G32_FLOAT)
-//  stride = 32 bytes
+//      offset 32 : TEXCOORD1 (R32G32B32A32_FLOAT) 모프 타깃
+//      offset 48 : TEXCOORD2 (R32G32B32A32_FLOAT) 바이옴 가중치
+//  stride = 64 bytes
 // =============================================================
 struct TerrainVertex
 {
@@ -44,8 +46,13 @@ struct TerrainVertex
     //  셰이더에서 현재 LOD 에 해당하는 값 하나를 골라 지금 높이와 섞는다.
     DirectX::XMFLOAT4 morphTargets;
 
-    static const D3D11_INPUT_ELEMENT_DESC kLayout[4];
-    static constexpr UINT kLayoutCount = 4;
+    // 바이옴 가중치 (S73) : 사막 / 초원 / 숲 / 설원. 합이 1 이다.
+    //  CPU 가 기후 노이즈로 정점마다 계산해 넘긴다. 셰이더에 같은 노이즈를 또 짜지 않아도
+    //  CPU 의 높이 식과 GPU 의 색이 항상 같은 바이옴을 가리킨다.
+    DirectX::XMFLOAT4 biome;
+
+    static const D3D11_INPUT_ELEMENT_DESC kLayout[5];
+    static constexpr UINT kLayoutCount = 5;
 };
 
 // 터레인 상수 버퍼 (b0) - Shaders/TerrainCommon.hlsli 와 순서가 같아야 한다

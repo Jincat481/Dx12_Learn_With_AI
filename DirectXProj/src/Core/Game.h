@@ -32,7 +32,7 @@ private:
     enum class TerrainMode { Flat, Noise, Image, Splatting };
 
     // 청크 기반 씬 (스텝 5 이후)
-    enum class ChunkedMode { Culling, Lod, LodAdvanced, Sky, Clouds, Infinite };
+    enum class ChunkedMode { Culling, Lod, LodAdvanced, Sky, Clouds, Infinite, Biomes };
     void BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneName);
     void BuildTessellationScene();
     void BuildTerrainEditorScene();    // 에디터 : 지형 브러시 (S67~S70)

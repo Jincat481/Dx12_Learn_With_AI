@@ -38,7 +38,7 @@ namespace terrain
             {
                 const float x = -halfWidth + c * desc.cellSize;
 
-                TerrainVertex vertex;
+                TerrainVertex vertex{};
 
                 if (height)
                 {

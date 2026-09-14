@@ -50,6 +50,46 @@ namespace terrain
         {
             return a + (b - a) * t;
         }
+
+        // seed 를 직접 받는 펄린. 기후 노이즈는 지형과 다른 seed 를 써야 모양이 겹치지 않는다.
+        float PerlinSeeded(float x, float z, unsigned seed)
+        {
+            const float fx = std::floor(x);
+            const float fz = std::floor(z);
+
+            const int xi = static_cast<int>(fx);
+            const int zi = static_cast<int>(fz);
+
+            const float xf = x - fx;
+            const float zf = z - fz;
+
+            float gx = 0.0f, gz = 0.0f;
+
+            LatticeGradient(xi,     zi,     seed, gx, gz);
+            const float d00 = gx * xf + gz * zf;
+
+            LatticeGradient(xi + 1, zi,     seed, gx, gz);
+            const float d10 = gx * (xf - 1.0f) + gz * zf;
+
+            LatticeGradient(xi,     zi + 1, seed, gx, gz);
+            const float d01 = gx * xf + gz * (zf - 1.0f);
+
+            LatticeGradient(xi + 1, zi + 1, seed, gx, gz);
+            const float d11 = gx * (xf - 1.0f) + gz * (zf - 1.0f);
+
+            const float u = Fade(xf);
+            const float v = Fade(zf);
+
+            return Lerp(Lerp(d00, d10, u), Lerp(d01, d11, u), v) * 1.4142f;
+        }
+
+        // e0 → e1 구간에서 0 → 1. e0 > e1 이면 반대 방향으로 올라간다.
+        float SmoothRange(float e0, float e1, float value)
+        {
+            float t = (value - e0) / (e1 - e0);
+            t = (std::max)(0.0f, (std::min)(1.0f, t));
+            return t * t * (3.0f - 2.0f * t);
+        }
     }
 
     // -------------------------------------------------------------
@@ -85,37 +125,7 @@ namespace terrain
     // -------------------------------------------------------------
     float HeightField::PerlinNoise(float x, float z) const
     {
-        const float fx = std::floor(x);
-        const float fz = std::floor(z);
-
-        const int xi = static_cast<int>(fx);
-        const int zi = static_cast<int>(fz);
-
-        const float xf = x - fx;   // 셀 안에서의 위치 0~1
-        const float zf = z - fz;
-
-        // 네 모서리의 그래디언트와, 각 모서리에서 현재 위치까지의 거리 벡터를 내적한다.
-        float gx = 0.0f, gz = 0.0f;
-
-        LatticeGradient(xi,     zi,     m_params.seed, gx, gz);
-        const float d00 = gx * xf + gz * zf;
-
-        LatticeGradient(xi + 1, zi,     m_params.seed, gx, gz);
-        const float d10 = gx * (xf - 1.0f) + gz * zf;
-
-        LatticeGradient(xi,     zi + 1, m_params.seed, gx, gz);
-        const float d01 = gx * xf + gz * (zf - 1.0f);
-
-        LatticeGradient(xi + 1, zi + 1, m_params.seed, gx, gz);
-        const float d11 = gx * (xf - 1.0f) + gz * (zf - 1.0f);
-
-        const float u = Fade(xf);
-        const float v = Fade(zf);
-
-        const float value = Lerp(Lerp(d00, d10, u), Lerp(d01, d11, u), v);
-
-        // 2D 펄린의 이론적 범위는 약 ±0.707 이다. -1~1 로 맞춰 준다.
-        return value * 1.4142f;
+        return PerlinSeeded(x, z, m_params.seed);
     }
 
     float HeightField::BaseNoise(float x, float z) const
@@ -181,6 +191,9 @@ namespace terrain
         if (m_params.source == HeightSource::Image)
             return SampleImage(x, z);
 
+        if (m_params.biomes)
+            return BiomeHeight(x, z);
+
         return FractalNoise(x, z) * m_params.amplitude * m_params.flatten;
     }
 
@@ -209,6 +222,85 @@ namespace terrain
         XMFLOAT3 result;
         XMStoreFloat3(&result, normal);
         return result;
+    }
+
+    // -------------------------------------------------------------
+    // 바이옴 (S73)
+    //
+    //  지형 하나의 식(fBm)만 쓰면 어디를 가도 비슷한 산이 나온다.
+    //  실제 지형은 기후에 따라 모양 자체가 다르다. 사막은 평평하고 모래 언덕이 길게 늘어서고,
+    //  추운 곳은 날카로운 봉우리가 솟는다.
+    //
+    //  1) 기후 : 아주 낮은 주파수의 노이즈 두 장 → 온도, 습도 (-1 ~ 1)
+    //  2) 가중치 : 온도·습도 구간을 smoothstep 으로 나눠 네 바이옴의 비율을 정한다 (합 1)
+    //  3) 높이 : 바이옴마다 다른 식으로 높이를 구하고 가중치로 섞는다
+    //
+    //  가중치가 연속이라 바이옴 경계에서 높이도 끊기지 않고 이어진다.
+    //  0/1 로 딱 나누면 경계마다 절벽이 생긴다.
+    // -------------------------------------------------------------
+    void HeightField::SampleClimate(float x, float z, float& temperature, float& moisture) const
+    {
+        const float f = m_params.biomeFrequency;
+
+        // 옥타브 두 개면 충분하다. 기후는 크게 변하는 값이라 잔물결이 필요 없다.
+        temperature = PerlinSeeded(x * f, z * f, m_params.seed + 7919u) * 0.7f +
+                      PerlinSeeded(x * f * 2.3f, z * f * 2.3f, m_params.seed + 7927u) * 0.3f;
+        moisture    = PerlinSeeded(x * f, z * f, m_params.seed + 104729u) * 0.7f +
+                      PerlinSeeded(x * f * 2.3f, z * f * 2.3f, m_params.seed + 104723u) * 0.3f;
+
+        // 펄린 fBm 은 0 근처에 몰려 있다. 넓게 펴서 네 바이옴이 고르게 나오게 한다.
+        temperature = (std::max)(-1.0f, (std::min)(1.0f, temperature * 1.6f));
+        moisture    = (std::max)(-1.0f, (std::min)(1.0f, moisture * 1.6f));
+    }
+
+    XMFLOAT4 HeightField::SampleBiomeWeights(float x, float z) const
+    {
+        if (!m_params.biomes || m_params.source != HeightSource::Noise)
+            return XMFLOAT4(0.0f, 1.0f, 0.0f, 0.0f);
+
+        float temperature = 0.0f;
+        float moisture = 0.0f;
+        SampleClimate(x, z, temperature, moisture);
+
+        const float cold = SmoothRange(-0.15f, -0.45f, temperature);   // 추울수록 1
+        const float hot  = SmoothRange( 0.10f,  0.40f, temperature);   // 더울수록 1
+        const float dry  = SmoothRange( 0.00f, -0.30f, moisture);
+        const float wet  = SmoothRange( 0.00f,  0.30f, moisture);
+
+        // cold 와 hot 은 온도 구간이 겹치지 않으므로 합이 1 을 넘지 않는다.
+        const float tundra = cold;
+        const float desert = hot * dry;
+        const float forest = (1.0f - cold) * (1.0f - desert) * wet;
+        const float plains = (std::max)(0.0f, 1.0f - tundra - desert - forest);
+
+        const float total = (std::max)(1.0e-4f, tundra + desert + forest + plains);
+        return XMFLOAT4(desert / total, plains / total, forest / total, tundra / total);
+    }
+
+    float HeightField::BiomeHeight(float x, float z) const
+    {
+        const XMFLOAT4 weights = SampleBiomeWeights(x, z);
+        const float n = FractalNoise(x, z);   // -1 ~ 1
+
+        // 사막 : 거의 평평한 바닥 위에 한 방향으로 길게 늘어선 모래 언덕
+        //  z 주파수를 낮춰 늘이고, 1 - |노이즈| 로 언덕 꼭대기를 뾰족하게 만든다.
+        const float dune = 1.0f - std::fabs(PerlinSeeded(x * 0.02f, z * 0.006f, m_params.seed + 31337u));
+        const float desertHeight = n * 0.12f + dune * dune * 0.16f - 0.10f;
+
+        // 초원 : 완만하게
+        const float plainsHeight = n * 0.30f;
+
+        // 숲 : 구릉
+        const float forestHeight = n * 0.60f + 0.05f;
+
+        // 설원 : 능선형(ridged) 노이즈. |n| 이 0 에 가까운 곳이 날카로운 봉우리 선이 된다.
+        const float ridge = 1.0f - std::fabs(n);
+        const float tundraHeight = ridge * ridge * 1.7f - 0.35f;
+
+        const float height = desertHeight * weights.x + plainsHeight * weights.y +
+                             forestHeight * weights.z + tundraHeight * weights.w;
+
+        return height * m_params.amplitude * m_params.flatten;
     }
 
     // -------------------------------------------------------------
