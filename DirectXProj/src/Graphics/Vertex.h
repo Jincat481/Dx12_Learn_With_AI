@@ -76,7 +76,7 @@ struct TerrainConstantBuffer
 };
 
 // 물 상수 버퍼 (b0) - Shaders/WaterCommon.hlsli 와 순서가 같아야 한다
-//  float4x4 2개(128) + float4 10개(160) = 288 bytes
+//  float4x4 2개(128) + float4 13개(208) = 336 bytes
 struct WaterConstantBuffer
 {
     DirectX::XMFLOAT4X4 wvp;
@@ -90,7 +90,9 @@ struct WaterConstantBuffer
     DirectX::XMFLOAT4   fogColor;
     DirectX::XMFLOAT4   fogParams;
     DirectX::XMFLOAT4   flags;         // x 반사 / y 굴절 / z 거품
-    DirectX::XMFLOAT4   padding;
+    DirectX::XMFLOAT4   ripple;        // xy 물결 영역 원점 / z 크기 / w 법선 세기 (S79)
+    DirectX::XMFLOAT4   flow;          // x 켜짐 / y 속도 / z 무늬 배율 / w 물결 텍셀 크기 (S80)
+    DirectX::XMFLOAT4   shore;         // xy 해안 마스크 원점 / z 크기 / w 있음 (S81)
 };
 
 // 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 7 = 240 bytes

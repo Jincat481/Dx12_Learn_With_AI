@@ -130,6 +130,21 @@ public:
         bool  reflection = true;
         bool  refraction = true;
         bool  foam = true;
+
+        // 자연스러운 흐름 (S80)
+        bool  flow = true;
+        float flowSpeed = 3.0f;         // 해류 속도 (초당 월드 단위 근처)
+        float flowScale = 0.35f;        // 잔물결 무늬 배율 (클수록 촘촘)
+
+        // 클릭 물결 (S79)
+        ID3D11ShaderResourceView* rippleHeight = nullptr;
+        DirectX::XMFLOAT4 rippleRegion{ 0.0f, 0.0f, 1.0f, 0.0f };   // xy 원점 / z 크기 / w 법선 세기
+        float rippleTexel = 1.0f / 512.0f;
+        bool  rippleDebug = false;       // 물결 높이를 색으로 보기
+
+        // 해안 마스크 (S81) : 디버그 보기에서 벽으로 쓰는 땅 영역을 노랗게 칠한다
+        ID3D11ShaderResourceView* shoreMask = nullptr;
+        DirectX::XMFLOAT4 shoreRegion{ 0.0f, 0.0f, 1.0f, 0.0f };
     };
 
     // 불투명 결과를 복사해 두고(한 프레임에 한 번) 수면을 그린다.

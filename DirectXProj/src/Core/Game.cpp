@@ -590,7 +590,7 @@ void Game::SetupShowcaseList()
 
     m_showcases.push_back({
         L"터레인 · 물 표면",
-        L"평면 반사 패스 · 깊이 복사로 물 두께 · 굴절 · 프레넬 · 물결 법선 · 해안선 거품 (S76~S78)",
+        L"반사 패스 · 깊이 복사 · 프레넬 · 컬 노이즈 흐름 · 클릭하면 퍼지는 물결 (S76~S80)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Water, "Terrain_Water"); } });
 
     m_showcases.push_back({
@@ -977,6 +977,11 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"[ / ]", L"수위", level, true });
         lines.push_back({ L"X", L"반사 패스", onOff(water->IsReflectionEnabled()), true });
         lines.push_back({ L"Z", L"굴절 · 깊이", onOff(water->IsRefractionEnabled()), true });
+        lines.push_back({ L"U", L"물 흐름 (컬 노이즈)", onOff(water->IsFlowEnabled()), true });
+        lines.push_back({ L"R", L"빗방울", onOff(water->IsRainEnabled()), true });
+        lines.push_back({ L"좌클릭 / 드래그", L"물결 일으키기", L"", false });
+        lines.push_back({ L"1", L"물결 높이 보기", onOff(water->IsRippleDebugEnabled()), true });
+        lines.push_back({ L"", L"해안 반사", water->IsBuildingShore() ? L"굽는 중" : (water->HasShore() ? L"켬" : L"-"), true });
     }
 
     // 카메라가 있는 씬 : 이동 방식
@@ -1307,6 +1312,18 @@ void Game::HandleFrameEndCommands()
             {
                 water->ToggleRefraction();
                 dxutil::DebugLog(L"[Water] 굴절 · 깊이 %s", water->IsRefractionEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('U'))
+            {
+                water->ToggleFlow();
+                dxutil::DebugLog(L"[Water] 흐름 %s", water->IsFlowEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('1'))
+                water->ToggleRippleDebug();
+            if (input.GetKeyDown('R'))
+            {
+                water->ToggleRain();
+                dxutil::DebugLog(L"[Water] 빗방울 %s", water->IsRainEnabled() ? L"켬" : L"끔");
             }
             if (input.GetKeyDown(VK_OEM_4)) water->SetWaterLevel(water->GetWaterLevel() - 2.0f);   // [
             if (input.GetKeyDown(VK_OEM_6)) water->SetWaterLevel(water->GetWaterLevel() + 2.0f);   // ]

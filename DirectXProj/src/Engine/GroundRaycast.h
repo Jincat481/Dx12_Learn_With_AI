@@ -2,6 +2,7 @@
 #include "Core/stdafx.h"
 
 class IGroundProvider;
+class Scene;
 
 // =============================================================
 // GroundRaycast (S67)
@@ -23,4 +24,11 @@ namespace ground
                  const DirectX::XMFLOAT3& direction,
                  float maxDistance,
                  DirectX::XMFLOAT3& outHit);
+
+    // 씬 안의 모든 IGroundProvider 를 대상으로 쏜다. 가장 가까운 교점을 돌려준다.
+    bool RaycastScene(const Scene& scene,
+                      const DirectX::XMFLOAT3& origin,
+                      const DirectX::XMFLOAT3& direction,
+                      float maxDistance,
+                      DirectX::XMFLOAT3& outHit);
 }

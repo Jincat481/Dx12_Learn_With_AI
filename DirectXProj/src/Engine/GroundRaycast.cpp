@@ -1,6 +1,8 @@
 #include "Core/stdafx.h"
 #include "Engine/GroundRaycast.h"
 #include "Engine/GroundProvider.h"
+#include "Engine/Scene.h"
+#include "Engine/GameObject.h"
 
 using namespace DirectX;
 
@@ -74,5 +76,49 @@ namespace ground
         }
 
         return false;
+    }
+
+    bool RaycastScene(const Scene& scene,
+                      const XMFLOAT3& origin,
+                      const XMFLOAT3& direction,
+                      float maxDistance,
+                      XMFLOAT3& outHit)
+    {
+        bool found = false;
+        float nearest = maxDistance;
+
+        for (const auto& object : scene.GetGameObjects())
+        {
+            if (!object || object->IsPendingDestroy() || !object->IsActive())
+                continue;
+
+            for (const auto& entry : object->GetComponentMap())
+            {
+                for (const auto& component : entry.second)
+                {
+                    const IGroundProvider* provider = dynamic_cast<const IGroundProvider*>(component.get());
+                    if (!provider || component->IsPendingDestroy() || !component->IsEnabled())
+                        continue;
+
+                    XMFLOAT3 hit{};
+                    if (!Raycast(*provider, origin, direction, nearest, hit))
+                        continue;
+
+                    const float dx = hit.x - origin.x;
+                    const float dy = hit.y - origin.y;
+                    const float dz = hit.z - origin.z;
+                    const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+                    if (distance <= nearest)
+                    {
+                        nearest = distance;
+                        outHit = hit;
+                        found = true;
+                    }
+                }
+            }
+        }
+
+        return found;
     }
 }

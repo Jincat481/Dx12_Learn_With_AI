@@ -1027,8 +1027,11 @@ void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParam
         cb->projection = XMFLOAT4(nearZ, farZ, 1.0f / static_cast<float>(m_width), 1.0f / static_cast<float>(m_height));
         cb->fogColor = m_fog.color;
         cb->fogParams = m_fog.params;
-        cb->flags = XMFLOAT4(params.reflection ? 1.0f : 0.0f, params.refraction ? 1.0f : 0.0f, params.foam ? 1.0f : 0.0f, 0.0f);
-        cb->padding = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+        cb->flags = XMFLOAT4(params.reflection ? 1.0f : 0.0f, params.refraction ? 1.0f : 0.0f, params.foam ? 1.0f : 0.0f,
+                             params.rippleDebug ? 1.0f : 0.0f);
+        cb->ripple = params.rippleHeight ? params.rippleRegion : XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
+        cb->flow = XMFLOAT4(params.flow ? 1.0f : 0.0f, params.flowSpeed, params.flowScale, params.rippleTexel);
+        cb->shore = params.shoreMask ? params.shoreRegion : XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
 
         m_context->Unmap(m_waterConstantBuffer.Get(), 0);
     }
@@ -1048,13 +1051,14 @@ void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParam
     m_context->VSSetConstantBuffers(0, 1, m_waterConstantBuffer.GetAddressOf());
     m_context->PSSetConstantBuffers(0, 1, m_waterConstantBuffer.GetAddressOf());
 
-    ID3D11ShaderResourceView* views[3] = { m_reflectionSRV.Get(), m_sceneColorSRV.Get(), m_sceneDepthSRV.Get() };
-    m_context->PSSetShaderResources(0, 3, views);
+    ID3D11ShaderResourceView* views[5] = { m_reflectionSRV.Get(), m_sceneColorSRV.Get(), m_sceneDepthSRV.Get(),
+                                           params.rippleHeight, params.shoreMask };
+    m_context->PSSetShaderResources(0, 5, views);
     m_context->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());   // CLAMP : 화면 밖을 반복해 읽으면 안 된다
 
     m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
 
     // 다음 프레임에 이 텍스처들로 다시 그리거나 복사해 넣으려면 입력으로 묶여 있으면 안 된다.
-    ID3D11ShaderResourceView* nullViews[3] = { nullptr, nullptr, nullptr };
-    m_context->PSSetShaderResources(0, 3, nullViews);
+    ID3D11ShaderResourceView* nullViews[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    m_context->PSSetShaderResources(0, 5, nullViews);
 }

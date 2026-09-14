@@ -140,6 +140,7 @@
     <ClCompile Include="src\Terrain\HydraulicErosion.cpp" />
     <ClCompile Include="src\Terrain\TerrainErosion.cpp" />
     <ClCompile Include="src\Engine\WaterRenderer.cpp" />
+    <ClCompile Include="src\Engine\WaterRipples.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
@@ -196,6 +197,7 @@
     <ClInclude Include="src\Terrain\HydraulicErosion.h" />
     <ClInclude Include="src\Terrain\TerrainErosion.h" />
     <ClInclude Include="src\Engine\WaterRenderer.h" />
+    <ClInclude Include="src\Engine\WaterRipples.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />
@@ -222,6 +224,7 @@
     <None Include="Shaders\WaterCommon.hlsli" />
     <None Include="Shaders\WaterVS.hlsl" />
     <None Include="Shaders\WaterPS.hlsl" />
+    <None Include="Shaders\RippleSim.hlsl" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
