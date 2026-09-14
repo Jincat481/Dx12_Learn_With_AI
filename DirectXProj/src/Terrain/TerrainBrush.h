@@ -1,6 +1,7 @@
 #pragma once
 #include "Core/stdafx.h"
 #include "Engine/Component.h"
+#include "Terrain/HydraulicErosion.h"
 
 class Graphics;
 class ChunkedTerrainRenderer;
@@ -19,6 +20,7 @@ class ChunkedTerrainRenderer;
 //   2 내리기   : 가운데일수록 많이 내린다
 //   3 평탄화   : 누른 순간의 높이로 서서히 맞춘다
 //   4 부드럽게 : 이웃 평균으로 서서히 당긴다 (뾰족한 곳이 무뎌진다)
+//   5 침식     : 원 안에만 물방울을 떨어뜨려 그 자리에 물길을 낸다 (S74)
 //
 //  감쇠(falloff)
 //   원 안 모든 점을 같은 양만큼 올리면 경계가 절벽이 된다.
@@ -27,7 +29,7 @@ class ChunkedTerrainRenderer;
 class TerrainBrush : public Component
 {
 public:
-    enum class Tool { Raise, Lower, Flatten, Smooth, Count };
+    enum class Tool { Raise, Lower, Flatten, Smooth, Erode, Count };
 
     TerrainBrush() = default;
     ~TerrainBrush() override = default;
@@ -62,6 +64,9 @@ private:
     DirectX::XMFLOAT3 m_hitPoint{ 0.0f, 0.0f, 0.0f };
 
     bool  m_painting = false;
+
+    terrain::HydraulicErosion m_erosion;
+    std::mt19937 m_rng{ 777u };
     float m_flattenHeight = 0.0f;
 
     static constexpr float kMinRadius = 4.0f;

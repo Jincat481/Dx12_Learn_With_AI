@@ -137,6 +137,8 @@
     <ClCompile Include="src\Terrain\TerrainBrush.cpp" />
     <ClCompile Include="src\Engine\GroundRaycast.cpp" />
     <ClCompile Include="src\Graphics\ComputeShader.cpp" />
+    <ClCompile Include="src\Terrain\HydraulicErosion.cpp" />
+    <ClCompile Include="src\Terrain\TerrainErosion.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
@@ -190,6 +192,8 @@
     <ClInclude Include="src\Terrain\TerrainBrush.h" />
     <ClInclude Include="src\Engine\GroundRaycast.h" />
     <ClInclude Include="src\Graphics\ComputeShader.h" />
+    <ClInclude Include="src\Terrain\HydraulicErosion.h" />
+    <ClInclude Include="src\Terrain\TerrainErosion.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />

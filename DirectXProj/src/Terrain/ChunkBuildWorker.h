@@ -35,6 +35,9 @@ namespace terrain
         float cellSize = 1.0f;
         bool  skirt = true;
 
+        // 같은 좌표의 청크를 새 높이로 바꿔 끼운다 (편집 · 침식처럼 제자리에서 높이가 바뀐 경우, S74)
+        bool  replace = false;
+
         // 높이 함수의 사본. 메인 스레드가 원본을 바꿔도(N 키) 계산 중인 작업은 영향을 받지 않는다.
         std::shared_ptr<const HeightField> height;
     };
@@ -45,6 +48,7 @@ namespace terrain
         int      worldZ = 0;
         uint32_t generation = 0;
         bool     ok = false;
+        bool     replace = false;
         ChunkMeshData data;
     };
 

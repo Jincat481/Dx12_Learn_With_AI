@@ -19,6 +19,7 @@
 #include "Engine/SkyRenderer.h"
 #include "Terrain/TessellatedTerrainRenderer.h"
 #include "Terrain/TerrainBrush.h"
+#include "Terrain/TerrainErosion.h"
 #include "Editor/MenuScreen.h"
 #include "Game/MenuController.h"
 
@@ -113,6 +114,7 @@ void Game::RegisterComponentTypes()
     factory.Register<SkyRenderer>("SkyRenderer");
     factory.Register<TessellatedTerrainRenderer>("TessellatedTerrainRenderer");
     factory.Register<TerrainBrush>("TerrainBrush");
+    factory.Register<TerrainErosion>("TerrainErosion");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -326,16 +328,25 @@ void Game::BuildTessellationScene()
 // 에디터 : 지형 브러시 (S67~S70)
 //  청크 지형을 편집 가능한 격자로 굽고, 같은 오브젝트에 브러시를 붙인다.
 // -------------------------------------------------------------
-void Game::BuildTerrainEditorScene()
+void Game::BuildTerrainEditorScene(bool startErosion)
 {
-    Scene* scene = SceneManager::Get().CreateScene("Terrain_Editor");
+    Scene* scene = SceneManager::Get().CreateScene(startErosion ? "Terrain_Erosion" : "Terrain_Editor");
     if (!scene)
         return;
 
     GameObject* cameraObject = scene->CreateGameObject("MainCamera");
     Camera* camera = cameraObject->AddComponent<Camera>();
-    camera->SetPosition(XMFLOAT3(0.0f, 120.0f, -250.0f));
-    camera->LookAt(XMFLOAT3(0.0f, 0.0f, 20.0f));
+    if (startErosion)
+    {
+        // 물길은 가까이서 봐야 보인다.
+        camera->SetPosition(XMFLOAT3(-40.0f, 95.0f, -170.0f));
+        camera->LookAt(XMFLOAT3(0.0f, 0.0f, 10.0f));
+    }
+    else
+    {
+        camera->SetPosition(XMFLOAT3(0.0f, 120.0f, -250.0f));
+        camera->LookAt(XMFLOAT3(0.0f, 0.0f, 20.0f));
+    }
 
     GameObject* skyObject = scene->CreateGameObject("Sky");
     SkyRenderer* sky = skyObject->AddComponent<SkyRenderer>();
@@ -348,7 +359,7 @@ void Game::BuildTerrainEditorScene()
     terrain->SetGrid(16, 16, 16, 2.0f);
 
     terrain::HeightParams height;
-    height.amplitude = 40.0f;
+    height.amplitude = startErosion ? 55.0f : 40.0f;   // 침식은 가파른 산일수록 물길이 뚜렷하다
     height.frequency = 0.008f;
     terrain->SetHeightParams(height);
 
@@ -362,6 +373,10 @@ void Game::BuildTerrainEditorScene()
     terrain->EnableEditing();
 
     terrainObject->AddComponent<TerrainBrush>();
+
+    // 수력 침식 (S74). R 로 켜고 끈다.
+    TerrainErosion* erosion = terrainObject->AddComponent<TerrainErosion>();
+    erosion->SetRunning(startErosion);
 }
 
 void Game::BuildSpriteDemoScene()
@@ -502,6 +517,11 @@ void Game::SetupShowcaseList()
         L"터레인 에디터 연결 · 바이옴",
         L"온도 · 습도 노이즈 → 바이옴 가중치 · 바이옴마다 다른 높이 식 · 정점 속성으로 넘기기 (S73)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Biomes, "Terrain_Biomes"); } });
+
+    m_showcases.push_back({
+        L"터레인 · 수력 침식",
+        L"물방울 입자가 흙을 깎고 쌓아 계곡을 만든다 · 시간 예산 · 대량 재생성은 작업 스레드로 (S74)",
+        [this]() { BuildTerrainEditorScene(true); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -801,15 +821,33 @@ void Game::UpdateControlsPanel()
                 _snwprintf_s(hit, _countof(hit), _TRUNCATE, L"-");
 
             wchar_t rebuilt[64];
-            _snwprintf_s(rebuilt, _countof(rebuilt), _TRUNCATE, L"%d개 · %.2f ms",
-                         chunked->GetLastEditRebuildCount(), chunked->GetLastEditRebuildMs());
+            if (chunked->GetLastEditRebuildMs() < 0.0f)
+                _snwprintf_s(rebuilt, _countof(rebuilt), _TRUNCATE, L"%d개 · 작업 스레드",
+                             chunked->GetLastEditRebuildCount());
+            else
+                _snwprintf_s(rebuilt, _countof(rebuilt), _TRUNCATE, L"%d개 · %.2f ms",
+                             chunked->GetLastEditRebuildCount(), chunked->GetLastEditRebuildMs());
 
             lines.push_back({ L"좌클릭 드래그", L"지형 칠하기", L"", false });
-            lines.push_back({ L"1 ~ 4", L"브러시 도구", brush->GetToolName(), true });
+            lines.push_back({ L"1 ~ 5", L"브러시 도구", brush->GetToolName(), true });
             lines.push_back({ L"휠", L"브러시 반경", radius, true });
             lines.push_back({ L"[ / ]", L"브러시 세기", strength, true });
             lines.push_back({ L"", L"가리킨 곳", hit, true });
             lines.push_back({ L"", L"다시 만든 청크", rebuilt, true });
+
+            if (TerrainErosion* erosion = chunked->GetOwner()->GetComponent<TerrainErosion>())
+            {
+                wchar_t droplets[96];
+                _snwprintf_s(droplets, _countof(droplets), _TRUNCATE, L"이번 실행 %d / %d · 이번 프레임 %d개",
+                             erosion->GetRunDroplets(), TerrainErosion::kDropletsPerRun, erosion->GetDropletsLastFrame());
+
+                wchar_t cost[48];
+                _snwprintf_s(cost, _countof(cost), _TRUNCATE, L"%.1f ms", erosion->GetLastFrameMs());
+
+                lines.push_back({ L"R", L"수력 침식 한 번 더", erosion->IsRunning() ? L"실행 중" : L"멈춤", true });
+                lines.push_back({ L"", L"떨어뜨린 물방울", droplets, true });
+                lines.push_back({ L"", L"침식 계산", cost, true });
+            }
         }
 
         lines.push_back({ L"", L"그리는 중", drawing, true });

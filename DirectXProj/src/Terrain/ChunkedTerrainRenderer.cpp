@@ -323,7 +323,11 @@ void ChunkedTerrainRenderer::ReceiveBuiltChunks()
         return;
 
     std::vector<terrain::ChunkBuildResult> results;
-    m_worker.TakeCompleted(results, static_cast<size_t>(m_uploadBudget));
+
+    // 편집 지형은 한 번에 수백 개가 바뀌므로 업로드 상한을 넉넉히 둔다.
+    const int budget = IsEditable() ? 64 : m_uploadBudget;
+    m_worker.TakeCompleted(results, static_cast<size_t>(budget));
+    int uploaded = 0;
 
     for (terrain::ChunkBuildResult& result : results)
     {
@@ -342,12 +346,20 @@ void ChunkedTerrainRenderer::ReceiveBuiltChunks()
             continue;
 
         ChunkSlot& state = m_slots[static_cast<size_t>(slot)];
-        if (state.valid && state.worldX == result.worldX && state.worldZ == result.worldZ)
+        if (!result.replace && state.valid && state.worldX == result.worldX && state.worldZ == result.worldZ)
             continue;
 
         const bool ok = m_chunks[static_cast<size_t>(slot)].Upload(m_graphics->GetDevice(), result.data);
         state = ChunkSlot{ result.worldX, result.worldZ, ok };
         ++m_rebuiltThisFrame;
+        ++uploaded;
+    }
+
+    // 유한 지형은 제자리에서 높이가 바뀐 것이다. 색상 기준과 쿼드트리 상자를 다시 모은다.
+    if (uploaded > 0 && !m_infiniteEnabled)
+    {
+        RecomputeGlobalHeightRange();
+        m_quadTree.Build(m_chunksX, m_chunksZ, m_chunks);
     }
 }
 
@@ -520,9 +532,18 @@ void ChunkedTerrainRenderer::SetSkirtEnabled(bool enabled)
 void ChunkedTerrainRenderer::Update()
 {
     if (m_dirty)
+    {
         RebuildChunks();
-    else if (m_anyDirtyChunk)
-        RebuildDirtyChunks();
+    }
+    else
+    {
+        // 편집 지형 : 작업 스레드로 넘긴 대량 재생성 결과를 받는다 (S74)
+        if (IsEditable() && m_worker.IsRunning())
+            ReceiveBuiltChunks();
+
+        if (m_anyDirtyChunk)
+            RebuildDirtyChunks();
+    }
 
     if (!m_graphics || m_chunks.empty())
         return;
@@ -824,6 +845,14 @@ void ChunkedTerrainRenderer::MarkRegionDirty(float minX, float minZ, float maxX,
 // -------------------------------------------------------------
 void ChunkedTerrainRenderer::RebuildDirtyChunks()
 {
+    // 작업 스레드에 넘긴 묶음을 아직 다 받지 못했다면 기다린다.
+    //  그 사이 바로 만든 새 결과를 늦게 도착한 옛 결과가 덮어쓰지 않게 하려는 것이다. (S74)
+    if (!m_inFlight.empty())
+        return;
+
+    if (DispatchDirtyChunksToWorkers())
+        return;
+
     const auto start = std::chrono::steady_clock::now();
     int rebuilt = 0;
 
@@ -848,6 +877,60 @@ void ChunkedTerrainRenderer::RebuildDirtyChunks()
     const auto end = std::chrono::steady_clock::now();
     m_lastEditRebuildCount = rebuilt;
     m_lastEditRebuildMs = std::chrono::duration<float, std::milli>(end - start).count();
+}
+
+// -------------------------------------------------------------
+// 대량 재생성 (S74)
+//  침식은 지형 전체를 매 프레임 조금씩 바꾼다. 수백 개 청크를 메인 스레드에서 만들면 프레임이 무너진다.
+//  격자를 통째로 복사한 사본을 작업 스레드에 넘기고, 메인 스레드는 결과만 받아 올린다.
+//  사본을 넘기므로 침식이 원본을 계속 고쳐도 계산 중인 작업과 부딪히지 않는다.
+// -------------------------------------------------------------
+bool ChunkedTerrainRenderer::DispatchDirtyChunksToWorkers()
+{
+    if (!m_worker.IsRunning())
+        return false;
+
+    int dirtyCount = 0;
+    for (uint8_t flag : m_dirtyChunks)
+        dirtyCount += flag ? 1 : 0;
+
+    if (dirtyCount <= kSyncRebuildLimit)
+        return false;   // 몇 개뿐이면 바로 만드는 편이 빠르고 반응도 즉각적이다
+
+    auto snapshot = std::make_shared<terrain::HeightField>(m_height);
+    if (m_editGrid)
+        snapshot->SetGrid(std::make_shared<terrain::HeightGrid>(*m_editGrid));
+
+    const float chunkSize = m_cellsPerChunk * m_cellSize;
+
+    for (size_t index = 0; index < m_dirtyChunks.size(); ++index)
+    {
+        if (!m_dirtyChunks[index])
+            continue;
+
+        m_dirtyChunks[index] = 0;
+        const ChunkSlot& slot = m_slots[index];
+
+        terrain::ChunkBuildRequest request;
+        request.worldX = slot.worldX;
+        request.worldZ = slot.worldZ;
+        request.generation = m_generation;
+        request.originX = slot.worldX * chunkSize;
+        request.originZ = (slot.worldZ + 1) * chunkSize;
+        request.cells = m_cellsPerChunk;
+        request.cellSize = m_cellSize;
+        request.skirt = m_skirtEnabled;
+        request.replace = true;
+        request.height = snapshot;
+
+        m_worker.Submit(std::move(request));
+        m_inFlight.insert(MakeChunkKey(slot.worldX, slot.worldZ));
+    }
+
+    m_anyDirtyChunk = false;
+    m_lastEditRebuildCount = dirtyCount;
+    m_lastEditRebuildMs = -1.0f;   // 작업 스레드가 만들었다는 표시
+    return true;
 }
 
 void ChunkedTerrainRenderer::SetBrushPreview(bool visible, float x, float z, float radius, int tool)

@@ -177,15 +177,16 @@ float3 ApplyBrushPreview(float3 rgb, float3 worldPos)
     if (gBrush.w < 0.5f)
         return rgb;
 
-    // 도구마다 색 : 올리기 / 내리기 / 평탄화 / 부드럽게
-    const float3 kToolColors[4] =
+    // 도구마다 색 : 올리기 / 내리기 / 평탄화 / 부드럽게 / 침식
+    const float3 kToolColors[5] =
     {
         float3(0.35f, 0.85f, 1.00f),
         float3(1.00f, 0.55f, 0.30f),
         float3(1.00f, 0.92f, 0.35f),
         float3(0.55f, 1.00f, 0.55f),
+        float3(0.30f, 0.55f, 1.00f),
     };
-    int tool = clamp((int)gBrush.w - 1, 0, 3);
+    int tool = clamp((int)gBrush.w - 1, 0, 4);
     float3 color = kToolColors[tool];
 
     float distance = length(worldPos.xz - gBrush.xy);

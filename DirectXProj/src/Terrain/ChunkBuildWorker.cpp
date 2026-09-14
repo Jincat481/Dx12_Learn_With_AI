@@ -121,6 +121,7 @@ namespace terrain
             result.worldX = request.worldX;
             result.worldZ = request.worldZ;
             result.generation = request.generation;
+            result.replace = request.replace;
             result.ok = TerrainChunk::BuildMeshData(request.originX, request.originZ,
                                                     request.cells, request.cellSize,
                                                     request.skirt, request.height.get(),

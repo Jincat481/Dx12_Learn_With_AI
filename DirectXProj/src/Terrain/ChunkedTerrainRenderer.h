@@ -143,6 +143,7 @@ private:
 
     void ReceiveBuiltChunks();
     void RebuildDirtyChunks();
+    bool DispatchDirtyChunksToWorkers();
     void RecomputeGlobalHeightRange();
     void UseEditGrid(std::shared_ptr<terrain::HeightGrid> grid);
     int  SlotForWorldChunk(int worldX, int worldZ) const;
@@ -213,6 +214,9 @@ private:
     std::vector<uint8_t> m_dirtyChunks;        // 다시 만들 청크 표시
     bool  m_anyDirtyChunk = false;
     int   m_lastEditRebuildCount = 0;
+
+    // 한 번에 이보다 많은 청크가 바뀌면(침식) 작업 스레드로 넘긴다. 적으면(브러시) 바로 만든다.
+    static constexpr int kSyncRebuildLimit = 12;
     float m_lastEditRebuildMs = 0.0f;
     DirectX::XMFLOAT4 m_brushPreview{ 0.0f, 0.0f, 0.0f, 0.0f };
 

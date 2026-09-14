@@ -25,6 +25,7 @@ const wchar_t* TerrainBrush::GetToolName() const
     case Tool::Lower:   return L"내리기";
     case Tool::Flatten: return L"평탄화";
     case Tool::Smooth:  return L"부드럽게";
+    case Tool::Erode:   return L"침식";
     default:            return L"-";
     }
 }
@@ -49,6 +50,7 @@ void TerrainBrush::Update()
     if (input.GetKeyDown('2')) m_tool = Tool::Lower;
     if (input.GetKeyDown('3')) m_tool = Tool::Flatten;
     if (input.GetKeyDown('4')) m_tool = Tool::Smooth;
+    if (input.GetKeyDown('5')) m_tool = Tool::Erode;
 
     // 우클릭은 카메라 프리룩이 쓴다. 그동안 브러시는 쉰다.
     const bool cameraLooking = input.GetMouseButton(InputManager::Right);
@@ -114,6 +116,23 @@ void TerrainBrush::Apply(ChunkedTerrainRenderer& terrain, float deltaTime)
 
     if (column0 > column1 || row0 > row1)
         return;
+
+    // 침식 브러시 : 원 안에만 물방울을 떨어뜨린다. 세기 12 면 초당 약 2만 방울.
+    if (m_tool == Tool::Erode)
+    {
+        const int droplets = (std::max)(1, static_cast<int>(m_strength * 2000.0f * deltaTime));
+
+        terrain::GridBounds touched;
+        m_erosion.SimulateInCircle(*grid, grid->ToColumn(m_hitPoint.x), grid->ToRow(m_hitPoint.z),
+                                   m_radius / grid->GetCellSize(), droplets, m_rng, touched);
+
+        if (!touched.IsEmpty())
+        {
+            terrain.MarkRegionDirty(grid->ColumnToX(touched.minColumn), grid->RowToZ(touched.maxRow),
+                                    grid->ColumnToX(touched.maxColumn), grid->RowToZ(touched.minRow));
+        }
+        return;
+    }
 
     // 부드럽게 : 고치는 도중의 값을 이웃 평균에 쓰면 칠하는 방향으로 쏠린다.
     //  그래서 한 칸 테두리까지 원본을 먼저 복사해 두고 거기서 평균을 낸다.
