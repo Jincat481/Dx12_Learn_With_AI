@@ -18,6 +18,7 @@
 #include "Terrain/ChunkedTerrainRenderer.h"
 #include "Engine/SkyRenderer.h"
 #include "Terrain/TessellatedTerrainRenderer.h"
+#include "Terrain/TerrainBrush.h"
 #include "Editor/MenuScreen.h"
 #include "Game/MenuController.h"
 
@@ -111,6 +112,7 @@ void Game::RegisterComponentTypes()
     factory.Register<ChunkedTerrainRenderer>("ChunkedTerrainRenderer");
     factory.Register<SkyRenderer>("SkyRenderer");
     factory.Register<TessellatedTerrainRenderer>("TessellatedTerrainRenderer");
+    factory.Register<TerrainBrush>("TerrainBrush");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -295,6 +297,48 @@ void Game::BuildTessellationScene()
     terrain->SetWireframe(true);   // 분할이 눈에 보이도록 처음엔 와이어프레임
 }
 
+// -------------------------------------------------------------
+// 에디터 : 지형 브러시 (S67~S70)
+//  청크 지형을 편집 가능한 격자로 굽고, 같은 오브젝트에 브러시를 붙인다.
+// -------------------------------------------------------------
+void Game::BuildTerrainEditorScene()
+{
+    Scene* scene = SceneManager::Get().CreateScene("Terrain_Editor");
+    if (!scene)
+        return;
+
+    GameObject* cameraObject = scene->CreateGameObject("MainCamera");
+    Camera* camera = cameraObject->AddComponent<Camera>();
+    camera->SetPosition(XMFLOAT3(0.0f, 120.0f, -250.0f));
+    camera->LookAt(XMFLOAT3(0.0f, 0.0f, 20.0f));
+
+    GameObject* skyObject = scene->CreateGameObject("Sky");
+    SkyRenderer* sky = skyObject->AddComponent<SkyRenderer>();
+    sky->SetFogRange(250.0f, 950.0f, 0.0010f);
+
+    GameObject* terrainObject = scene->CreateGameObject("Terrain");
+    ChunkedTerrainRenderer* terrain = terrainObject->AddComponent<ChunkedTerrainRenderer>();
+
+    // 16 x 16 청크 x 16칸 x 칸 2 = 512 x 512, 편집 격자 257 x 257
+    terrain->SetGrid(16, 16, 16, 2.0f);
+
+    terrain::HeightParams height;
+    height.amplitude = 40.0f;
+    height.frequency = 0.008f;
+    terrain->SetHeightParams(height);
+
+    terrain->SetCullingEnabled(true);
+    terrain->SetLodEnabled(true);
+    terrain->SetSkirtEnabled(true);
+    terrain->SetMorphEnabled(true);
+    terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
+
+    // 함수를 표본으로 굽는다. 이제부터 높이는 격자 값이다.
+    terrain->EnableEditing();
+
+    terrainObject->AddComponent<TerrainBrush>();
+}
+
 void Game::BuildSpriteDemoScene()
 {
     Scene* scene = SceneManager::Get().CreateScene("SpriteDemo");
@@ -425,6 +469,11 @@ void Game::SetupShowcaseList()
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Infinite, "Terrain_Step10"); } });
 
     m_showcases.push_back({
+        L"터레인 에디터 · 지형 브러시",
+        L"마우스 레이 피킹 · 올리기/내리기/평탄화/부드럽게 · 바뀐 청크만 재생성 · 저장 (S67~S70)",
+        [this]() { BuildTerrainEditorScene(); } });
+
+    m_showcases.push_back({
         L"2D 스프라이트 데모",
         L"계층 Transform · 피킹 · 드래그 · Hierarchy / Inspector",
         [this]() { BuildSpriteDemoScene(); } });
@@ -523,7 +572,10 @@ GameObject* Game::GetSelectedObject() const
 void Game::UpdateEditorUI()
 {
     if (!m_showEditorPanels)
+    {
+        InputManager::Get().SetPointerOverUI(false);
         return;    // 메뉴 씬에서는 패널을 띄우지 않는다
+    }
 
     Scene* scene = SceneManager::Get().GetActiveScene();
     if (!scene || !m_graphics)
@@ -552,6 +604,10 @@ void Game::UpdateEditorUI()
 
     // 글자를 입력받는 동안 WASD 로 캐릭터가 움직이면 안 된다.
     input.SetTextCaptureActive(m_inspector.IsEditing());
+
+    // 패널 위의 마우스는 UI 몫이다. 지형 브러시 같은 게임 쪽 입력은 이 값을 보고 물러난다.
+    input.SetPointerOverUI(m_hierarchy.Contains(input.GetMouseX(), input.GetMouseY()) ||
+                           m_inspector.Contains(input.GetMouseX(), input.GetMouseY()));
 
     UpdateControlsPanel();
 }
@@ -663,6 +719,34 @@ void Game::UpdateControlsPanel()
             lines.push_back({ L"J", L"무한 지형", L"켬", true });
             lines.push_back({ L"B", L"백그라운드 생성", worker, true });
             lines.push_back({ L"", L"메인 스레드 비용", cost, true });
+        }
+
+        // 편집 가능한 지형이면 브러시 조작을 보여 준다.
+        if (TerrainBrush* brush = chunked->GetOwner()->GetComponent<TerrainBrush>())
+        {
+            wchar_t radius[32];
+            _snwprintf_s(radius, _countof(radius), _TRUNCATE, L"%.0f", brush->GetRadius());
+
+            wchar_t strength[32];
+            _snwprintf_s(strength, _countof(strength), _TRUNCATE, L"%.1f", brush->GetStrength());
+
+            wchar_t hit[64];
+            if (brush->HasHit())
+                _snwprintf_s(hit, _countof(hit), _TRUNCATE, L"(%.0f, %.1f, %.0f)",
+                             brush->GetHitPoint().x, brush->GetHitPoint().y, brush->GetHitPoint().z);
+            else
+                _snwprintf_s(hit, _countof(hit), _TRUNCATE, L"-");
+
+            wchar_t rebuilt[64];
+            _snwprintf_s(rebuilt, _countof(rebuilt), _TRUNCATE, L"%d개 · %.2f ms",
+                         chunked->GetLastEditRebuildCount(), chunked->GetLastEditRebuildMs());
+
+            lines.push_back({ L"좌클릭 드래그", L"지형 칠하기", L"", false });
+            lines.push_back({ L"1 ~ 4", L"브러시 도구", brush->GetToolName(), true });
+            lines.push_back({ L"휠", L"브러시 반경", radius, true });
+            lines.push_back({ L"[ / ]", L"브러시 세기", strength, true });
+            lines.push_back({ L"", L"가리킨 곳", hit, true });
+            lines.push_back({ L"", L"다시 만든 청크", rebuilt, true });
         }
 
         lines.push_back({ L"", L"그리는 중", drawing, true });

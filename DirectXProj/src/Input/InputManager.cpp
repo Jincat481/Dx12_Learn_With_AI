@@ -28,6 +28,35 @@ void InputManager::ApplyUp(KeyState& state)
         state = KeyState::None;
 }
 
+// -------------------------------------------------------------
+// 이번 프레임에 쌓인 누름/뗌을 상태에 반영한다.
+//  프레임이 느리거나 키를 톡 치면 한 프레임 사이에 Down 과 Up 이 함께 들어온다.
+//  둘을 한꺼번에 반영하면 Down 을 건너뛰고 곧장 Up 이 되어 GetKeyDown 이 한 번도 참이 되지 않는다.
+//  그래서 이번 프레임에는 하나만 반영하고 나머지는 다음 프레임으로 넘긴다.
+// -------------------------------------------------------------
+void InputManager::ApplyPending(KeyState& state, bool& pendingDown, bool& pendingUp)
+{
+    if (pendingDown && pendingUp)
+    {
+        if (state == KeyState::Down || state == KeyState::Pressed)
+        {
+            // 누르고 있던 키를 뗐다가 다시 눌렀다 : 뗌 먼저
+            ApplyUp(state);
+            pendingUp = false;
+        }
+        else
+        {
+            // 떼어져 있던 키를 눌렀다가 뗐다 : 누름 먼저
+            ApplyDown(state);
+            pendingDown = false;
+        }
+        return;
+    }
+
+    if (pendingDown) { ApplyDown(state); pendingDown = false; }
+    if (pendingUp)   { ApplyUp(state);   pendingUp = false; }
+}
+
 void InputManager::Update()
 {
     // 1) 지난 프레임 상태를 한 칸 진행시킨다.
@@ -38,15 +67,9 @@ void InputManager::Update()
 
     // 2) 이번 프레임 메시지에서 쌓인 이벤트를 반영한다.
     for (int i = 0; i < kKeyCount; ++i)
-    {
-        if (m_pendingKeyDown[i]) { ApplyDown(m_keys[i]); m_pendingKeyDown[i] = false; }
-        if (m_pendingKeyUp[i])   { ApplyUp(m_keys[i]);   m_pendingKeyUp[i] = false; }
-    }
+        ApplyPending(m_keys[i], m_pendingKeyDown[i], m_pendingKeyUp[i]);
     for (int i = 0; i < MouseButtonCount; ++i)
-    {
-        if (m_pendingMouseDown[i]) { ApplyDown(m_mouse[i]); m_pendingMouseDown[i] = false; }
-        if (m_pendingMouseUp[i])   { ApplyUp(m_mouse[i]);   m_pendingMouseUp[i] = false; }
-    }
+        ApplyPending(m_mouse[i], m_pendingMouseDown[i], m_pendingMouseUp[i]);
 
     m_wheelDelta = m_pendingWheelDelta;
     m_pendingWheelDelta = 0;

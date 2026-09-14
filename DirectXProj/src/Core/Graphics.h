@@ -56,6 +56,7 @@ public:
         DirectX::XMFLOAT4 splat{ 24.0f, 0.0f, 0.0f, 0.0f };               // x 타일 / y 스플래팅 / z 디버그색 / w 모프
         DirectX::XMFLOAT4 lodSelect{ 0.0f, 0.0f, 0.0f, 0.0f };            // 현재 LOD 성분만 1
         DirectX::XMFLOAT4 surface{ 0.0f, 12.0f, 4.0f, 0.0f };             // x 트라이플래너 / y 타일 월드 크기 / z 날카로움
+        DirectX::XMFLOAT4 brush{ 0.0f, 0.0f, 0.0f, 0.0f };                // xy 중심 / z 반경 / w 도구+1 (0 끔)
         bool wireframe = false;
 
         // 인덱스 버퍼의 일부만 그릴 때 사용한다(청크 LOD). count 가 0 이면 메시 전체.
@@ -107,6 +108,11 @@ public:
 
     void SetFog(const FogSettings& fog) { m_fog = fog; }
     const FogSettings& GetFog() const { return m_fog; }
+
+    // ---- 피킹 (3D, S67) ----
+    //  화면 좌표 → 월드 공간의 레이. 같은 화면 점을 가장 가까운 깊이(0)와
+    //  가장 먼 깊이(1)로 되돌린 두 점을 이으면 그 픽셀을 지나는 시선이 된다.
+    bool ScreenToRay(int screenX, int screenY, DirectX::XMFLOAT3& outOrigin, DirectX::XMFLOAT3& outDirection) const;
 
     float GetAspectRatio() const;
     DirectX::XMFLOAT3 GetEyePosition3D() const { return m_eyePosition; }

@@ -1,6 +1,7 @@
 #pragma once
 #include "Core/stdafx.h"
 #include "Terrain/HeightMapImage.h"
+#include "Terrain/HeightGrid.h"
 
 // =============================================================
 // HeightField (S36, S37)
@@ -35,6 +36,7 @@ namespace terrain
     {
         Noise,
         Image,
+        Grid,      // 편집 가능한 float 격자 (S69). 노이즈를 구워 담고 브러시로 고친다
     };
 
     struct HeightParams
@@ -65,6 +67,10 @@ namespace terrain
         // 이미지 모드에서 쓸 높이맵. 여러 터레인이 한 장을 공유할 수 있다.
         void SetImage(std::shared_ptr<HeightMapImage> image) { m_image = std::move(image); }
         const std::shared_ptr<HeightMapImage>& GetImage() const { return m_image; }
+
+        // 격자 모드에서 쓸 높이 표본. 사본끼리 같은 격자를 가리킨다.
+        void SetGrid(std::shared_ptr<HeightGrid> grid) { m_grid = std::move(grid); }
+        const std::shared_ptr<HeightGrid>& GetGrid() const { return m_grid; }
         const HeightParams& GetParams() const { return m_params; }
 
         // 월드 좌표에서의 높이
@@ -84,6 +90,7 @@ namespace terrain
 
         HeightParams m_params;
         std::shared_ptr<HeightMapImage> m_image;
+        std::shared_ptr<HeightGrid> m_grid;
     };
 
     // 화면에 그려진 격자 표면의 높이 (S66)

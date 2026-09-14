@@ -43,6 +43,12 @@ public:
     void SetTextCaptureActive(bool active) { m_textCapture = active; }
     bool IsTextCaptureActive() const { return m_textCapture; }
 
+    // ---- UI 가 마우스를 쓰고 있는가 ----
+    //  에디터 패널 위에서 누른 클릭이 뒤에 있는 지형까지 칠하면 안 된다.
+    //  Game 이 매 프레임 패널 영역을 보고 알려 주고, 게임 쪽 컴포넌트는 이 값만 본다.
+    void SetPointerOverUI(bool over) { m_pointerOverUI = over; }
+    bool IsPointerOverUI() const { return m_pointerOverUI; }
+
     // --- 조회 ---
     bool GetKey(int virtualKey) const;        // 누르고 있는 동안 계속 true
     bool GetKeyDown(int virtualKey) const;    // 누른 그 프레임만 true
@@ -64,6 +70,7 @@ private:
     static void AdvanceState(KeyState& state);
     static void ApplyDown(KeyState& state);
     static void ApplyUp(KeyState& state);
+    static void ApplyPending(KeyState& state, bool& pendingDown, bool& pendingUp);
 
     static constexpr int kKeyCount = 256;
 
@@ -78,6 +85,7 @@ private:
     int m_mouseX = 0;
     int m_mouseY = 0;
     int m_wheelDelta = 0;
+    bool m_pointerOverUI = false;
     int m_pendingWheelDelta = 0;
 
     std::wstring m_pendingText;   // 메시지에서 쌓이는 중

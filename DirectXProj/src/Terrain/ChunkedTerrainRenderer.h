@@ -101,6 +101,24 @@ public:
     // ---- 보강 : 지면 높이 (S66) ----
     bool TryGetGroundHeight(float x, float z, float& outHeight) const override;
 
+    // ---- 에디터 : 편집 (S69) ----
+    //  노이즈를 격자로 구워 브러시로 고칠 수 있게 한다. 유한 지형 전용이다.
+    void EnableEditing();
+    bool IsEditable() const { return static_cast<bool>(m_editGrid); }
+    terrain::HeightGrid* GetEditGrid() const { return m_editGrid.get(); }
+
+    // 월드 사각 영역의 높이가 바뀌었다. 겹치는 청크만 다음 Update 에서 다시 만든다.
+    void MarkRegionDirty(float minX, float minZ, float maxX, float maxZ);
+    int   GetLastEditRebuildCount() const { return m_lastEditRebuildCount; }
+    float GetLastEditRebuildMs() const { return m_lastEditRebuildMs; }
+
+    // 브러시 미리보기 원. 셰이더가 지형 표면에 그린다. (S68)
+    void SetBrushPreview(bool visible, float x, float z, float radius, int tool);
+
+    // ---- 저장 / 불러오기 (S70) ----
+    void ToJson(json::Value& out) const override;
+    void FromJson(const json::Value& in) override;
+
     void SetLodEnabled(bool enabled) { m_lodEnabled = enabled; }
     bool IsLodEnabled() const { return m_lodEnabled; }
     void ToggleLod() { m_lodEnabled = !m_lodEnabled; }
@@ -117,6 +135,9 @@ private:
     void CullChunksDirectly(const Frustum& frustum);
 
     void ReceiveBuiltChunks();
+    void RebuildDirtyChunks();
+    void RecomputeGlobalHeightRange();
+    void UseEditGrid(std::shared_ptr<terrain::HeightGrid> grid);
     int  SlotForWorldChunk(int worldX, int worldZ) const;
     void RecordBuildCost(float milliseconds);
     static uint64_t MakeChunkKey(int worldX, int worldZ);
@@ -178,6 +199,15 @@ private:
     float m_peakTimer = 0.0f;
 
     bool m_triplanarEnabled = true;            // 보강 (S63)
+
+    // 편집 (S69)
+    std::shared_ptr<terrain::HeightGrid> m_editGrid;
+    terrain::HeightParams m_baseParams;        // 격자를 구울 때 쓴 노이즈 설정 (N 으로 다시 구울 때 쓴다)
+    std::vector<uint8_t> m_dirtyChunks;        // 다시 만들 청크 표시
+    bool  m_anyDirtyChunk = false;
+    int   m_lastEditRebuildCount = 0;
+    float m_lastEditRebuildMs = 0.0f;
+    DirectX::XMFLOAT4 m_brushPreview{ 0.0f, 0.0f, 0.0f, 0.0f };
 
     DisplayMode m_displayMode = DisplayMode::ChunkColor;
 

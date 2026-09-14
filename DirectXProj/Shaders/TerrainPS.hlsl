@@ -4,6 +4,7 @@
 //  스텝 2 : 높이 색상 + 램버트 조명
 //  스텝 4 : 텍스처 스플래팅
 //  보강   : 트라이플래너 매핑 (S63) · 거리 안개 / 대기 원근 (S64)
+//  에디터 : 브러시 미리보기 원 (S68)
 // =============================================================
 #include "TerrainCommon.hlsli"
 #include "Atmosphere.hlsli"
@@ -123,6 +124,43 @@ float3 SplatColor(float2 uv, float3 worldPos, float3 normal, float height01, flo
     return (dirt * wDirt + grass * wGrass + rock * wRock + snow * wSnow) / total;
 }
 
+// -------------------------------------------------------------
+// 브러시 미리보기 (S68)
+//  CPU 가 레이로 찾은 점과 반경을 받아, 그 원을 지형 표면에 직접 그린다.
+//  원을 따로 메시로 만들면 울퉁불퉁한 지형 위에서 떠 보이거나 파묻힌다.
+//  픽셀마다 중심까지의 수평 거리를 재면 표면에 딱 붙은 원이 된다.
+// -------------------------------------------------------------
+float3 ApplyBrushPreview(float3 rgb, float3 worldPos)
+{
+    if (gBrush.w < 0.5f)
+        return rgb;
+
+    // 도구마다 색 : 올리기 / 내리기 / 평탄화 / 부드럽게
+    const float3 kToolColors[4] =
+    {
+        float3(0.35f, 0.85f, 1.00f),
+        float3(1.00f, 0.55f, 0.30f),
+        float3(1.00f, 0.92f, 0.35f),
+        float3(0.55f, 1.00f, 0.55f),
+    };
+    int tool = clamp((int)gBrush.w - 1, 0, 3);
+    float3 color = kToolColors[tool];
+
+    float distance = length(worldPos.xz - gBrush.xy);
+    float radius = max(gBrush.z, 1e-3f);
+
+    // 테두리 : fwidth 로 화면 기준 굵기가 일정한 선 (S35 의 격자선과 같은 수법)
+    float edge = 1.0f - saturate(abs(distance - radius) / max(fwidth(distance) * 1.5f, 1e-4f));
+
+    // 안쪽 : 브러시 감쇠 곡선(smoothstep)을 그대로 보여 준다. 가운데일수록 진하다.
+    float t = saturate(1.0f - distance / radius);
+    float falloff = t * t * (3.0f - 2.0f * t);
+
+    rgb = lerp(rgb, color, falloff * 0.18f);
+    rgb = lerp(rgb, color, edge * 0.9f);
+    return rgb;
+}
+
 float4 main(PSInput input) : SV_TARGET
 {
     // 와이어프레임 모드에서는 선 자체가 도형이므로 단색으로 칠한다.
@@ -183,6 +221,9 @@ float4 main(PSInput input) : SV_TARGET
     // ---- 거리 안개 / 대기 원근 (S64) ----
     //  조명까지 끝낸 "최종 색" 에 섞는다. 공기는 빛이 눈에 오는 길에 끼어들기 때문이다.
     rgb = ApplyAtmosphere(rgb, input.worldPos, gEyePos.xyz, gFogColor, gFogParams, gLightDir.xyz);
+
+    // 브러시 원은 안개 뒤에 그린다. 멀리서도 어디를 칠하는지 보여야 한다.
+    rgb = ApplyBrushPreview(rgb, input.worldPos);
 
     return float4(rgb, 1.0f);
 }

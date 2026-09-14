@@ -515,6 +515,32 @@ bool Graphics::CreateMeshPipeline()
     return true;
 }
 
+bool Graphics::ScreenToRay(int screenX, int screenY, XMFLOAT3& outOrigin, XMFLOAT3& outDirection) const
+{
+    if (m_width <= 0 || m_height <= 0)
+        return false;
+
+    // 클라이언트 좌표 → NDC. 화면 y 는 아래로, NDC y 는 위로 커진다.
+    const float ndcX = (2.0f * static_cast<float>(screenX) / static_cast<float>(m_width)) - 1.0f;
+    const float ndcY = 1.0f - (2.0f * static_cast<float>(screenY) / static_cast<float>(m_height));
+
+    const XMMATRIX viewProjection = GetView3D() * GetProjection3D();
+
+    XMVECTOR determinant = XMMatrixDeterminant(viewProjection);
+    if (XMVectorGetX(XMVectorAbs(determinant)) < 1.0e-12f)
+        return false;
+
+    const XMMATRIX inverse = XMMatrixInverse(&determinant, viewProjection);
+
+    // TransformCoord 가 w 로 나눠 준다(원근 나눗셈의 역).
+    const XMVECTOR nearPoint = XMVector3TransformCoord(XMVectorSet(ndcX, ndcY, 0.0f, 1.0f), inverse);
+    const XMVECTOR farPoint  = XMVector3TransformCoord(XMVectorSet(ndcX, ndcY, 1.0f, 1.0f), inverse);
+
+    XMStoreFloat3(&outOrigin, nearPoint);
+    XMStoreFloat3(&outDirection, XMVector3Normalize(XMVectorSubtract(farPoint, nearPoint)));
+    return true;
+}
+
 float Graphics::GetAspectRatio() const
 {
     if (m_height <= 0)
@@ -553,6 +579,7 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
         cb->lodSelect = drawParams.lodSelect;
         cb->eyePosition = XMFLOAT4(m_eyePosition.x, m_eyePosition.y, m_eyePosition.z, 1.0f);
         cb->surface = drawParams.surface;
+        cb->brush = drawParams.brush;
         cb->fogColor = m_fog.color;
         cb->fogParams = m_fog.params;
 

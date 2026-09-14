@@ -49,7 +49,7 @@ struct TerrainVertex
 };
 
 // 터레인 상수 버퍼 (b0) - Shaders/TerrainCommon.hlsli 와 순서가 같아야 한다
-//  float4x4 2개(128) + float4 10개(160) = 288 bytes (16의 배수)
+//  float4x4 2개(128) + float4 11개(176) = 304 bytes (16의 배수)
 struct TerrainConstantBuffer
 {
     DirectX::XMFLOAT4X4 wvp;
@@ -64,6 +64,7 @@ struct TerrainConstantBuffer
     DirectX::XMFLOAT4   surface;       // x : 트라이플래너  y : 타일 한 장의 월드 크기  z : 블렌드 날카로움
     DirectX::XMFLOAT4   fogColor;      // rgb : 안개 색  a : 켜짐
     DirectX::XMFLOAT4   fogParams;     // x : 시작 거리  y : 끝 거리  z : 밀도  w : 태양 산란
+    DirectX::XMFLOAT4   brush;         // xy : 브러시 중심(월드 xz)  z : 반경  w : 도구 번호 + 1 (0 이면 끔)
 };
 
 // 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 7 = 240 bytes

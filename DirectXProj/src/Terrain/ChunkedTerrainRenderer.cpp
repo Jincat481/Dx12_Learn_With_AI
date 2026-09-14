@@ -6,6 +6,8 @@
 #include "Graphics/TextureManager.h"
 #include "Utils/Paths.h"
 #include "Core/TimeManager.h"
+#include "Terrain/HeightGrid.h"
+#include "Utils/StringUtil.h"
 
 #include <limits>
 #include <algorithm>
@@ -65,12 +67,30 @@ void ChunkedTerrainRenderer::SetGrid(int chunksX, int chunksZ, int cellsPerChunk
 
 void ChunkedTerrainRenderer::SetHeightParams(const terrain::HeightParams& params)
 {
+    // 편집 중이면 노이즈 설정은 "격자를 구울 때 쓸 값" 이다. 새 설정으로 다시 굽는다.
+    if (IsEditable())
+    {
+        m_baseParams = params;
+        m_editGrid->BakeFrom(terrain::HeightField(m_baseParams));
+        m_dirty = true;
+        return;
+    }
+
     m_height.SetParams(params);
     m_dirty = true;
 }
 
 void ChunkedTerrainRenderer::Regenerate(unsigned seed)
 {
+    // 편집 중이면 새 seed 로 격자를 다시 굽는다. 칠해 둔 내용은 사라진다.
+    if (IsEditable())
+    {
+        m_baseParams.seed = seed;
+        m_editGrid->BakeFrom(terrain::HeightField(m_baseParams));
+        m_dirty = true;
+        return;
+    }
+
     terrain::HeightParams params = m_height.GetParams();
     params.seed = seed;
     m_height.SetParams(params);
@@ -120,24 +140,10 @@ bool ChunkedTerrainRenderer::RebuildChunks()
         }
     }
 
-    // 전체 높이 범위를 모아 둔다. (색상 램프 / 스플래팅 기준)
-    m_globalMinHeight = (std::numeric_limits<float>::max)();
-    m_globalMaxHeight = -(std::numeric_limits<float>::max)();
+    RecomputeGlobalHeightRange();
 
-    for (const terrain::TerrainChunk& chunk : m_chunks)
-    {
-        if (!chunk.IsValid())
-            continue;
-
-        m_globalMinHeight = (std::min)(m_globalMinHeight, chunk.GetMinHeight());
-        m_globalMaxHeight = (std::max)(m_globalMaxHeight, chunk.GetMaxHeight());
-    }
-
-    if (m_globalMaxHeight <= m_globalMinHeight)
-    {
-        m_globalMinHeight = 0.0f;
-        m_globalMaxHeight = 1.0f;
-    }
+    m_dirtyChunks.assign(m_chunks.size(), 0);
+    m_anyDirtyChunk = false;
 
     m_quadTree.Build(m_chunksX, m_chunksZ, m_chunks);
     m_chunkLod.assign(m_chunks.size(), 0);
@@ -174,6 +180,11 @@ bool ChunkedTerrainRenderer::BuildChunkAt(size_t slot, int worldChunkX, int worl
 void ChunkedTerrainRenderer::SetInfiniteEnabled(bool enabled)
 {
     if (m_infiniteEnabled == enabled)
+        return;
+
+    // 편집 격자는 크기가 정해진 표본이라 무한히 이어 붙일 수 없다. (스텝 3 의 이미지와 같은 이유)
+    // 게다가 무한 지형은 작업 스레드가 높이를 읽으므로 브러시가 동시에 고치면 데이터 경쟁이 된다.
+    if (enabled && IsEditable())
         return;
 
     m_infiniteEnabled = enabled;
@@ -510,6 +521,8 @@ void ChunkedTerrainRenderer::Update()
 {
     if (m_dirty)
         RebuildChunks();
+    else if (m_anyDirtyChunk)
+        RebuildDirtyChunks();
 
     if (!m_graphics || m_chunks.empty())
         return;
@@ -639,6 +652,7 @@ void ChunkedTerrainRenderer::Render()
         draw.surface = XMFLOAT4(m_triplanarEnabled ? 1.0f : 0.0f,
                                 (m_cellsPerChunk * m_cellSize) / 6.0f,
                                 4.0f, 0.0f);
+        draw.brush = m_brushPreview;
 
         // 현재 LOD 에 해당하는 모프 타깃만 고르도록 성분 하나만 1 로 둔다.
         draw.lodSelect = XMFLOAT4(lod == 0 ? 1.0f : 0.0f,
@@ -687,4 +701,244 @@ const wchar_t* ChunkedTerrainRenderer::GetDisplayModeName() const
     case DisplayMode::Wireframe:   return L"와이어프레임";
     default:                       return L"-";
     }
+}
+
+// -------------------------------------------------------------
+// 전체 높이 범위 (색상 램프 / 스플래팅 기준)
+//  청크마다 자기 min/max 를 쓰면 평평한 청크에도 눈이 덮이므로 지형 전체 기준으로 모은다.
+// -------------------------------------------------------------
+void ChunkedTerrainRenderer::RecomputeGlobalHeightRange()
+{
+    m_globalMinHeight = (std::numeric_limits<float>::max)();
+    m_globalMaxHeight = -(std::numeric_limits<float>::max)();
+
+    for (const terrain::TerrainChunk& chunk : m_chunks)
+    {
+        if (!chunk.IsValid())
+            continue;
+
+        m_globalMinHeight = (std::min)(m_globalMinHeight, chunk.GetMinHeight());
+        m_globalMaxHeight = (std::max)(m_globalMaxHeight, chunk.GetMaxHeight());
+    }
+
+    if (m_globalMaxHeight <= m_globalMinHeight)
+    {
+        m_globalMinHeight = 0.0f;
+        m_globalMaxHeight = 1.0f;
+    }
+}
+
+// =============================================================
+// 편집 (S69)
+// =============================================================
+void ChunkedTerrainRenderer::EnableEditing()
+{
+    if (IsEditable())
+        return;
+
+    m_infiniteEnabled = false;
+    m_centerChunkX = 0;
+    m_centerChunkZ = 0;
+
+    // 격자 범위는 청크 배치(RebuildChunks)와 정확히 같아야 한다.
+    //  X : 슬롯 0 은 월드 청크 -halfX 에서 시작
+    //  Z : 슬롯 0 은 월드 청크 halfZ 이고, 그 위쪽 모서리 (halfZ + 1) 에서 -Z 로 내려온다
+    const float chunkSize = m_cellsPerChunk * m_cellSize;
+    const int columns = m_chunksX * m_cellsPerChunk + 1;
+    const int rows = m_chunksZ * m_cellsPerChunk + 1;
+    const float originX = -static_cast<float>(m_chunksX / 2) * chunkSize;
+    const float originZ = static_cast<float>(m_chunksZ / 2 + 1) * chunkSize;
+
+    m_baseParams = m_height.GetParams();
+
+    auto grid = std::make_shared<terrain::HeightGrid>();
+    grid->Resize(columns, rows, originX, originZ, m_cellSize);
+    grid->BakeFrom(terrain::HeightField(m_baseParams));
+
+    UseEditGrid(std::move(grid));
+
+    dxutil::DebugLog(L"[Terrain] 편집 격자 %d x %d 로 굽기 완료", columns, rows);
+}
+
+void ChunkedTerrainRenderer::UseEditGrid(std::shared_ptr<terrain::HeightGrid> grid)
+{
+    m_editGrid = std::move(grid);
+
+    terrain::HeightParams params = m_height.GetParams();
+    params.source = terrain::HeightSource::Grid;
+    m_height.SetParams(params);
+    m_height.SetGrid(m_editGrid);
+
+    m_dirty = true;
+}
+
+// -------------------------------------------------------------
+// 바뀐 영역과 겹치는 청크에 표시만 해 둔다.
+//  브러시는 한 프레임에 여러 번 영역을 알릴 수 있으므로, 실제 재생성은 Update 에서 한 번만 한다.
+// -------------------------------------------------------------
+void ChunkedTerrainRenderer::MarkRegionDirty(float minX, float minZ, float maxX, float maxZ)
+{
+    if (m_chunks.empty() || m_dirtyChunks.size() != m_chunks.size())
+        return;
+
+    const float chunkSize = m_cellsPerChunk * m_cellSize;
+    if (chunkSize <= 0.0f)
+        return;
+
+    // 정점 법선은 이웃 칸 높이로 계산한다. 영역 바로 바깥 정점의 법선도 바뀌므로 한 칸 넓힌다.
+    minX -= m_cellSize;
+    minZ -= m_cellSize;
+    maxX += m_cellSize;
+    maxZ += m_cellSize;
+
+    const int halfX = m_chunksX / 2;
+    const int halfZ = m_chunksZ / 2;
+
+    // 슬롯 cx 는 월드 청크 (cx - halfX), 슬롯 cz 는 월드 청크 (halfZ - cz) 를 담당한다.
+    const int cx0 = (std::max)(0, static_cast<int>(std::floor(minX / chunkSize)) + halfX - m_centerChunkX);
+    const int cx1 = (std::min)(m_chunksX - 1, static_cast<int>(std::floor(maxX / chunkSize)) + halfX - m_centerChunkX);
+    const int cz0 = (std::max)(0, halfZ - (static_cast<int>(std::floor(maxZ / chunkSize)) - m_centerChunkZ));
+    const int cz1 = (std::min)(m_chunksZ - 1, halfZ - (static_cast<int>(std::floor(minZ / chunkSize)) - m_centerChunkZ));
+
+    for (int cz = cz0; cz <= cz1; ++cz)
+    {
+        for (int cx = cx0; cx <= cx1; ++cx)
+        {
+            m_dirtyChunks[static_cast<size_t>(cz) * m_chunksX + cx] = 1;
+            m_anyDirtyChunk = true;
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// 표시된 청크만 다시 만든다.
+//  256 개 중 브러시가 닿은 몇 개만 만들면 되므로 칠하는 동안에도 프레임이 떨어지지 않는다.
+// -------------------------------------------------------------
+void ChunkedTerrainRenderer::RebuildDirtyChunks()
+{
+    const auto start = std::chrono::steady_clock::now();
+    int rebuilt = 0;
+
+    for (size_t index = 0; index < m_dirtyChunks.size(); ++index)
+    {
+        if (!m_dirtyChunks[index])
+            continue;
+
+        m_dirtyChunks[index] = 0;
+
+        const ChunkSlot& slot = m_slots[index];
+        BuildChunkAt(index, slot.worldX, slot.worldZ);
+        ++rebuilt;
+    }
+
+    m_anyDirtyChunk = false;
+
+    // 높이가 바뀌면 경계 상자도 바뀐다. 색상 기준과 쿼드트리 노드 상자를 다시 모은다.
+    RecomputeGlobalHeightRange();
+    m_quadTree.Build(m_chunksX, m_chunksZ, m_chunks);
+
+    const auto end = std::chrono::steady_clock::now();
+    m_lastEditRebuildCount = rebuilt;
+    m_lastEditRebuildMs = std::chrono::duration<float, std::milli>(end - start).count();
+}
+
+void ChunkedTerrainRenderer::SetBrushPreview(bool visible, float x, float z, float radius, int tool)
+{
+    m_brushPreview = XMFLOAT4(x, z, radius, visible ? static_cast<float>(tool + 1) : 0.0f);
+}
+
+// =============================================================
+// 저장 / 불러오기 (S70)
+// =============================================================
+void ChunkedTerrainRenderer::ToJson(json::Value& out) const
+{
+    Component::ToJson(out);
+
+    out["chunksX"]       = json::Value(m_chunksX);
+    out["chunksZ"]       = json::Value(m_chunksZ);
+    out["cellsPerChunk"] = json::Value(m_cellsPerChunk);
+    out["cellSize"]      = json::Value(m_cellSize);
+    out["displayMode"]   = json::Value(static_cast<int>(m_displayMode));
+    out["culling"]       = json::Value(m_cullingEnabled);
+    out["lod"]           = json::Value(m_lodEnabled);
+    out["skirt"]         = json::Value(m_skirtEnabled);
+    out["morph"]         = json::Value(m_morphEnabled);
+    out["infinite"]      = json::Value(m_infiniteEnabled);
+    out["triplanar"]     = json::Value(m_triplanarEnabled);
+    out["asyncBuild"]    = json::Value(m_asyncBuild);
+
+    // 편집 중이면 격자를 구울 때 쓴 노이즈 설정을 남긴다.
+    const terrain::HeightParams& height = IsEditable() ? m_baseParams : m_height.GetParams();
+    out["noiseType"]   = json::Value(std::string(height.noiseType == terrain::NoiseType::Perlin ? "perlin" : "value"));
+    out["seed"]        = json::Value(static_cast<uint64_t>(height.seed));
+    out["frequency"]   = json::Value(height.frequency);
+    out["amplitude"]   = json::Value(height.amplitude);
+    out["octaves"]     = json::Value(height.octaves);
+    out["persistence"] = json::Value(height.persistence);
+    out["lacunarity"]  = json::Value(height.lacunarity);
+
+    // 편집한 높이는 float 수만 개다. JSON 에는 경로만 적고 값은 옆의 이진 파일에 둔다.
+    if (m_editGrid)
+    {
+        const std::wstring relative = L"Saves/terrain_height_" + std::to_wstring(GetId()) + L".raw";
+        if (m_editGrid->SaveRaw(Paths::ResolveForWrite(relative)))
+            out["heightGrid"] = json::Value(StringUtil::WideToUtf8(relative));
+        else
+            dxutil::DebugLog(L"[Terrain] 편집 격자 저장 실패 : %s", relative.c_str());
+    }
+}
+
+void ChunkedTerrainRenderer::FromJson(const json::Value& in)
+{
+    Component::FromJson(in);
+
+    if (const json::Value* value = in.Find("chunksX"))       m_chunksX       = value->AsInt(m_chunksX);
+    if (const json::Value* value = in.Find("chunksZ"))       m_chunksZ       = value->AsInt(m_chunksZ);
+    if (const json::Value* value = in.Find("cellsPerChunk")) m_cellsPerChunk = value->AsInt(m_cellsPerChunk);
+    if (const json::Value* value = in.Find("cellSize"))      m_cellSize      = value->AsFloat(m_cellSize);
+    if (const json::Value* value = in.Find("culling"))       m_cullingEnabled   = value->AsBool(m_cullingEnabled);
+    if (const json::Value* value = in.Find("lod"))           m_lodEnabled       = value->AsBool(m_lodEnabled);
+    if (const json::Value* value = in.Find("skirt"))         m_skirtEnabled     = value->AsBool(m_skirtEnabled);
+    if (const json::Value* value = in.Find("morph"))         m_morphEnabled     = value->AsBool(m_morphEnabled);
+    if (const json::Value* value = in.Find("triplanar"))     m_triplanarEnabled = value->AsBool(m_triplanarEnabled);
+    if (const json::Value* value = in.Find("asyncBuild"))    m_asyncBuild       = value->AsBool(m_asyncBuild);
+
+    if (const json::Value* value = in.Find("displayMode"))
+    {
+        const int mode = value->AsInt(0);
+        if (mode >= 0 && mode < static_cast<int>(DisplayMode::Count))
+            m_displayMode = static_cast<DisplayMode>(mode);
+    }
+
+    terrain::HeightParams height;
+    if (const json::Value* value = in.Find("noiseType"))
+        height.noiseType = (value->AsString("perlin") == "value") ? terrain::NoiseType::Value : terrain::NoiseType::Perlin;
+    if (const json::Value* value = in.Find("seed"))        height.seed        = static_cast<unsigned>(value->AsUInt64(height.seed));
+    if (const json::Value* value = in.Find("frequency"))   height.frequency   = value->AsFloat(height.frequency);
+    if (const json::Value* value = in.Find("amplitude"))   height.amplitude   = value->AsFloat(height.amplitude);
+    if (const json::Value* value = in.Find("octaves"))     height.octaves     = value->AsInt(height.octaves);
+    if (const json::Value* value = in.Find("persistence")) height.persistence = value->AsFloat(height.persistence);
+    if (const json::Value* value = in.Find("lacunarity"))  height.lacunarity  = value->AsFloat(height.lacunarity);
+
+    m_editGrid.reset();
+    m_height.SetGrid(nullptr);
+    m_height.SetParams(height);
+    m_baseParams = height;
+
+    if (const json::Value* value = in.Find("heightGrid"))
+    {
+        const std::wstring relative = StringUtil::Utf8ToWide(value->AsString());
+        auto grid = std::make_shared<terrain::HeightGrid>();
+
+        if (grid->LoadRaw(Paths::ResolveForWrite(relative)))
+            UseEditGrid(std::move(grid));
+        else
+            dxutil::DebugLog(L"[Terrain] 편집 격자를 읽지 못해 노이즈로 되돌린다 : %s", relative.c_str());
+    }
+
+    m_infiniteEnabled = false;
+    if (const json::Value* value = in.Find("infinite"))
+        SetInfiniteEnabled(value->AsBool(false));
+
+    m_dirty = true;
 }

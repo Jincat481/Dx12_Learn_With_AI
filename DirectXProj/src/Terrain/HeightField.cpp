@@ -171,6 +171,10 @@ namespace terrain
 
     float HeightField::Sample(float x, float z) const
     {
+        // 격자는 이미 월드 높이를 담고 있다. 진폭이나 flatten 을 다시 곱하지 않는다.
+        if (m_params.source == HeightSource::Grid)
+            return m_grid ? m_grid->SampleBilinear(x, z) : 0.0f;
+
         if (m_params.flatten <= 0.0f)
             return 0.0f;   // 완전 평면 (스텝 1 과 같은 결과)
 

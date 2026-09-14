@@ -35,6 +35,7 @@ private:
     enum class ChunkedMode { Culling, Lod, LodAdvanced, Sky, Clouds, Infinite };
     void BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneName);
     void BuildTessellationScene();
+    void BuildTerrainEditorScene();    // 에디터 : 지형 브러시 (S67~S70)
 
     // 씬 구성 함수들. 메뉴 항목 하나가 이 중 하나를 부른다.
     void BuildTerrainScene(TerrainMode mode, const std::string& sceneName);
