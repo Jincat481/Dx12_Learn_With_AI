@@ -85,4 +85,11 @@ namespace terrain
         HeightParams m_params;
         std::shared_ptr<HeightMapImage> m_image;
     };
+
+    // 화면에 그려진 격자 표면의 높이 (S66)
+    //  격자 정점은 (originX + c * cellSize, originZ - r * cellSize) 에 놓여 있다고 본다.
+    //  정점 4개의 높이를 구해, 인덱스 순서와 같은 대각선으로 나눈 삼각형 안에서 보간한다.
+    float SampleGridSurface(const HeightField& height,
+                            float originX, float originZ, float cellSize,
+                            float x, float z);
 }

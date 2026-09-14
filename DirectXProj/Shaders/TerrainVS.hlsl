@@ -1,20 +1,9 @@
 // =============================================================
 // TerrainVS.hlsl - 터레인 정점 셰이더 (스텝 1)
-//  b0 : WVP / World / 색 / 파라미터
+//  b0 : TerrainCommon.hlsli 참고
 //  입력 semantic 은 C++ 의 TerrainVertex 구조체와 일치해야 한다. (S31)
 // =============================================================
-
-cbuffer TerrainConstants : register(b0)
-{
-    float4x4 gWVP;
-    float4x4 gWorld;
-    float4   gColor;         // 평면 모드의 기본 색
-    float4   gParams;        // x,y : 격자 칸 수   z : 와이어프레임   w : 높이 사용(0/1)
-    float4   gHeightRange;   // x : 최저 높이   y : 최고 높이
-    float4   gLightDir;      // xyz : 방향광이 나아가는 방향   w : 환경광 세기
-    float4   gSplat;         // x : 타일 반복   y : 스플래팅   z : 디버그 단색   w : 모프 계수
-    float4   gLodSelect;     // 현재 LOD 성분만 1
-};
+#include "TerrainCommon.hlsli"
 
 struct VSInput
 {

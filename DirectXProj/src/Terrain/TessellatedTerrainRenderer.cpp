@@ -237,3 +237,27 @@ void TessellatedTerrainRenderer::Render()
 
     m_graphics->DrawTessellatedPatches(m_patches, transform->GetWorldMatrix(), draw);
 }
+
+// -------------------------------------------------------------
+// 지면 높이 (S66)
+//  높이 텍스처를 구운 것과 같은 함수에서 바로 읽는다.
+//  GPU 가 몇 등분할지는 CPU 가 모르지만, 가까운 곳은 촘촘히 쪼개지므로 함수 값에 수렴한다.
+// -------------------------------------------------------------
+bool TessellatedTerrainRenderer::TryGetGroundHeight(float x, float z, float& outHeight) const
+{
+    XMFLOAT3 offset(0.0f, 0.0f, 0.0f);
+    if (Transform* transform = GetTransform())
+        offset = transform->GetWorldPosition();
+
+    const float halfWidth = m_patchesX * m_patchSize * 0.5f;
+    const float halfDepth = m_patchesZ * m_patchSize * 0.5f;
+
+    const float localX = x - offset.x;
+    const float localZ = z - offset.z;
+
+    if (localX < -halfWidth || localX > halfWidth || localZ < -halfDepth || localZ > halfDepth)
+        return false;
+
+    outHeight = m_height.Sample(localX, localZ) + offset.y;
+    return true;
+}

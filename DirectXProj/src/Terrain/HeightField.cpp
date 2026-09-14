@@ -206,4 +206,47 @@ namespace terrain
         XMStoreFloat3(&result, normal);
         return result;
     }
+
+    // -------------------------------------------------------------
+    // 렌더링된 격자 표면의 높이 (S66)
+    //  Sample(x, z) 는 "함수" 의 높이다. 그런데 화면에 보이는 것은 격자 정점을 이은 삼각형이다.
+    //  칸 크기가 4 인 지형에서는 둘이 꽤 차이 나서, 함수 높이에 카메라를 세우면
+    //  발이 땅에 묻히거나 떠 보인다. 그래서 정점 4개를 구해 삼각형 안에서 보간한다.
+    //
+    //      TL ---- TR      인덱스 순서가 (TL, TR, BL) / (BL, TR, BR) 이므로
+    //      |     / |       대각선은 TR 과 BL 을 잇는다.
+    //      |   /   |       u + v <= 1 이면 위쪽 삼각형, 아니면 아래쪽 삼각형
+    //      BL ---- BR
+    // -------------------------------------------------------------
+    float SampleGridSurface(const HeightField& height,
+                            float originX, float originZ, float cellSize,
+                            float x, float z)
+    {
+        if (cellSize <= 0.0f)
+            return height.Sample(x, z);
+
+        const float gridX = (x - originX) / cellSize;   // 열 방향 (+X)
+        const float gridZ = (originZ - z) / cellSize;   // 행 방향 (-Z)
+
+        const float column = std::floor(gridX);
+        const float row = std::floor(gridZ);
+
+        const float u = gridX - column;
+        const float v = gridZ - row;
+
+        const float left = originX + column * cellSize;
+        const float right = left + cellSize;
+        const float top = originZ - row * cellSize;
+        const float bottom = top - cellSize;
+
+        const float hTL = height.Sample(left, top);
+        const float hTR = height.Sample(right, top);
+        const float hBL = height.Sample(left, bottom);
+        const float hBR = height.Sample(right, bottom);
+
+        if (u + v <= 1.0f)
+            return hTL + (hTR - hTL) * u + (hBL - hTL) * v;                 // 삼각형 (TL, TR, BL)
+
+        return hBR + (hBL - hBR) * (1.0f - u) + (hTR - hBR) * (1.0f - v);   // 삼각형 (BL, TR, BR)
+    }
 }

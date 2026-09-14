@@ -63,9 +63,14 @@
 | V | 구름 켜기/끄기 (스텝 8~9) |
 | + / − | 구름 양 조절 |
 | J | 무한 지형 켜기/끄기 (스텝 10) |
+| **T** | **트라이플래너 매핑 켜기/끄기** (스플래팅 보기) |
+| **O** | **거리 안개 켜기/끄기** (하늘이 있는 스텝 7~10) |
+| **B** | **백그라운드 청크 생성 켜기/끄기** (스텝 10) |
+| **G** | **비행 ↔ 걷기** — 걷기에서는 중력을 받고 땅 위에 선다 |
+| **우클릭 + Space** | **점프** (걷기 모드) |
+| ESC | 메뉴로 복귀 |
 
 화면 왼쪽 아래에 **조작 안내 패널**이 떠서 어떤 키가 무엇을 바꾸는지, 지금 어떤 모드인지 보여준다.
-| ESC | 메뉴로 복귀 |
 
 ### 스프라이트 데모 씬
 
@@ -92,14 +97,17 @@
 ```
 DirectXProj/
 ├─ Assets/     player.png, child.png
-├─ Shaders/    SpriteVS/PS.hlsl, TerrainVS/PS.hlsl   (런타임 컴파일, .cso 캐시 생성)
+├─ Shaders/    Sprite*, Terrain*, Sky*, Tess*.hlsl    (런타임 컴파일, .cso 캐시 생성)
+│             TerrainCommon / Atmosphere / TessCommon.hlsli
 ├─ Saves/      scene.json                     (F5 저장 결과)
 └─ src/
    ├─ Core/      stdafx, Window, Graphics, Game, TimeManager, ObjectRegistry
    ├─ Engine/    Component, GameObject, Transform, SpriteRenderer, Camera,
-   │             Scene, SceneManager, ComponentFactory, Picker
+   │             Scene, SceneManager, ComponentFactory, Picker, SkyRenderer, GroundProvider
    ├─ Graphics/  Vertex, Mesh, Texture, TextureManager, Shader, ShaderManager
-   ├─ Terrain/   HeightField, TerrainMeshBuilder, TerrainRenderer
+   ├─ Terrain/   HeightField, HeightMapImage, TerrainMeshBuilder, TerrainRenderer,
+   │             TerrainChunk, TerrainQuadTree, ChunkedTerrainRenderer, ChunkBuildWorker,
+   │             TessellatedTerrainRenderer
    ├─ Input/     InputManager
    ├─ Utils/     Json, StringUtil, IdGenerator, Paths
    ├─ Editor/    EditorStyle, MenuScreen, HierarchyPanel, InspectorPanel
@@ -134,6 +142,24 @@ DirectXProj/
 | 8 | 스카이맵 (SkyDome / SkyBox) | **완료** |
 | 9 | 동적 왜곡 구름 (Perturbed Clouds) | **완료** |
 | 10 | 무한 지형 청크 (Infinite Chunks) | **완료** |
+
+### 보강 — 약점 메우기
+
+스텝 1~10 을 끝내고 나서 눈에 띈 약점 네 가지를 메웠다. 새 스텝을 만들지 않고 기존 스텝에 얹었으므로 **키 하나로 전후를 비교**할 수 있다.
+
+| 약점 | 증상 | 보강 | 비교 키 | 상태 |
+| --- | --- | --- | --- | --- |
+| 절벽 텍스처 늘어짐 | UV 를 XZ 평면에서만 가져와 가파른 면에서 텍스처가 세로 줄무늬로 늘어진다. 청크마다 UV 가 0~1 이라 경계에서 무늬도 끊긴다 | 트라이플래너 매핑 | T | **완료** |
+| 지형 끝이 보인다 | 무한 지형 가장자리에서 청크가 갑자기 생기고, 지형과 하늘의 경계가 칼로 자른 듯하다 | 거리 안개 · 대기 원근 | O | **완료** |
+| 날아다니면 끊긴다 | 새 청크의 정점 계산을 메인 스레드가 해서 청크 경계를 넘는 프레임이 늦어진다 | 작업 스레드에서 계산, 메인 스레드는 버퍼만 생성 | B | **완료** |
+| 땅속으로 들어간다 | 카메라가 지형을 몰라 산을 뚫고 지나가고, 걸어 다닐 수 없다 | 지면 높이 조회 · 걷기 모드 | G | **완료** |
+
+측정 — 스텝 10 에서 4초 동안 앞으로 날며 조작 패널의 "메인 스레드 비용"(최근 0.5초 최댓값)을 읽었다 (Debug 빌드).
+
+| 방식 | 메인 스레드 비용 |
+| --- | --- |
+| 메인 스레드에서 직접 생성 (B 끔, 프레임당 3개) | 4.99 ms |
+| 작업 스레드 4개 + 메인은 업로드만 (B 켬) | 0.50 ms |
 
 ### 스텝 1 에서 알아야 할 키워드
 
@@ -219,8 +245,24 @@ DirectXProj/
 | **S61** | 도메인 셰이더와 변위 매핑 — `SV_DomainLocation`, 이중선형 보간, 높이맵 샘플링, 기울기로 법선 만들기 | 쪼개진 점마다 실행되어 실제 위치를 만든다. 평면 위치를 만든 뒤 높이맵으로 y 를 올리는 것이 변위 매핑이다 | `Shaders/TessDS.hlsl` |
 | **S62** | 왜 높이가 텍스처여야 하나 — 정점이 GPU 에서 생기므로 높이도 GPU 가 읽어야 한다, `R32_FLOAT`, DS 단계의 샘플러 | 스텝 1~6 은 CPU 가 정점을 만들었으니 CPU 함수로 충분했다. 테셀레이션은 다르다. 노이즈를 한 번 구워 텍스처로 올린다 | `TessellatedTerrainRenderer::BuildHeightTexture` |
 
+### 보강에서 알아야 할 키워드
+
+| 번호 | 키워드 | 왜 필요한가 | 코드 위치 |
+| --- | --- | --- | --- |
+| **S63** | 트라이플래너 매핑 — 월드 좌표를 X / Y / Z 세 방향으로 투영해 세 번 샘플링, `pow(abs(normal), k)` 가중치와 정규화, 레이어당 샘플 3배 비용 | 경사도(S45)로 바위를 골라 줘도 UV 가 XZ 평면이면 절벽에서는 텍스처 한 줄이 높이 전체에 늘어난다. 법선이 향하는 축에서 찍은 투영을 쓰면 늘어짐이 사라지고, 월드 좌표라 청크 경계에서 무늬가 끊기지도 않는다 | `Shaders/TerrainPS.hlsl` `SampleLayer()` |
+| **S64** | 거리 안개와 대기 원근 — 지수 안개 `1 - exp(-d·density)`, 끝 거리에서 강제로 덮기, 내산란(해를 향할수록 밝고 따뜻하게), **안개 색 = 하늘 지평선 색** | 멀리 있는 것은 공기를 더 많이 지나 흐리고 푸르게 보인다. 안개 색을 하늘과 같은 식으로 만들어야 지형 끝이 하늘에 녹는다. 지수 곡선은 1 에 영영 닿지 않으므로, 무한 지형은 스트리밍 반경 안쪽에서 **반드시** 완전히 덮어 아직 없는 청크를 가린다 | `Shaders/Atmosphere.hlsli`, `SkyRenderer::Update` |
+| **S65** | 작업 스레드와 데이터 경계 — `std::thread`, `mutex`, `condition_variable`, 요청 큐 / 결과 큐, CPU 계산과 GPU 업로드 분리, 세대 번호로 옛 결과 버리기, 대기 요청 취소 | 스레드로 넘겨도 되는 일(순수 계산)과 안 되는 일(공유 상태 · GPU 자원)을 가르는 것이 핵심이다. 작업 스레드는 청크 배열을 만지지 않고 결과만 줄에 올린다. N 으로 지형을 바꾸면 세대 번호가 올라 늦게 도착한 옛 조각이 섞이지 않는다 | `Terrain/ChunkBuildWorker`, `TerrainChunk::BuildMeshData` / `Upload` |
+| **S66** | 지면 높이 조회와 중력 — 인터페이스(`IGroundProvider`)와 `dynamic_cast`, 격자 삼각형 안에서의 보간(대각선 방향), 오일러 적분, 착지와 내리막 붙기 | 높이 함수 `h(x, z)` 와 화면에 그려진 삼각형의 높이는 칸 크기만큼 다르다. 보간 대각선을 인덱스 순서와 맞춰야 발이 묻히거나 뜨지 않는다. 카메라는 지형 종류를 모르고 인터페이스만 본다 | `Engine/GroundProvider.h`, `Camera::ApplyGround`, `terrain::SampleGridSurface` |
+
 ## 설계 메모
 
+- **안개는 하늘이 켠다** — 안개는 지형이 아니라 공기의 성질이다. `SkyRenderer` 가 Update 에서 `Graphics::SetFog` 로 켜고 `Graphics::EndFrame` 이 끈다. 하늘이 없는 씬(스텝 1~6)으로 넘어가면 다음 프레임에 아무도 켜지 않으므로 안개가 남지 않는다. 지형 렌더러는 안개가 있는지조차 모른다.
+- **스레드 경계는 "순수 계산" 에서 자른다** — 작업 스레드는 `ChunkMeshData`(정점·인덱스 벡터)까지만 만들고, `ID3D11Buffer` 생성과 슬롯 교체는 메인 스레드가 한다. 잠금이 필요한 곳이 요청 큐와 결과 큐 두 군데뿐이라 교착을 걱정할 일이 없고, 무거운 계산은 잠금 밖에서 한다.
+- **높이 함수는 사본을 넘긴다** — N 키로 지형을 다시 만들면 메인 스레드가 `HeightField` 를 바꾼다. 작업 스레드가 같은 객체를 읽는 중이면 데이터 경쟁이다. 재생성할 때마다 `shared_ptr<const HeightField>` 사본을 만들어 요청에 실어 보낸다.
+- **주문 장부로 중복을 막는다** — 매 프레임 "필요한데 없는 청크" 를 모으면 이미 주문한 것도 다시 잡힌다. 주문한 좌표를 `m_inFlight` 에 적어 두고 결과를 받거나 취소했을 때만 지운다. 카메라가 청크 경계를 넘으면 아직 시작하지 않은 요청은 거둬들이고 새 거리 순서로 다시 줄 세운다.
+- **카메라는 지형을 모른다** — `Camera` 는 씬의 컴포넌트 중 `IGroundProvider` 를 구현한 것만 찾는다. 스텝 1~4 / 5~10 / 7 의 렌더러가 모두 다르지만 카메라 코드는 하나다. 씬 구성 코드에서 포인터로 연결하지 않으므로 F9 로 씬을 다시 불러와도 끊어지지 않는다.
+- **조작 패널은 글자 폭을 재서 열을 맞춘다** — 보강 키가 늘면서 "백그라운드 생성" 같은 긴 설명이 값과 겹쳤다. 고정 좌표 대신 그릴 때 `GetTextExtentPoint32W` 로 가장 긴 설명·값의 픽셀 폭을 재서 열 위치와 패널 폭을 정한다.
+- **셰이더 캐시는 include 파일도 본다** — `TerrainCommon.hlsli` / `Atmosphere.hlsli` 만 고치고 `.hlsl` 은 그대로면, `.hlsl` 시각만 비교하는 캐시는 낡은 `.cso` 를 계속 쓴다. 그래서 `Shaders` 폴더의 `.hlsli` 중 가장 최근 수정 시각보다도 `.cso` 가 새로울 때만 캐시를 쓴다.
 - **입력** — Win32 메시지는 pending 큐에 쌓고 `InputManager::Update()` 에서 한 번에 반영한다. 그래서 "메시지 처리 → 입력 갱신" 순서에서도 Down/Up 이 정확히 한 프레임만 참이다.
 - **Transform** — 로컬 값이나 부모 관계가 바뀔 때만 Dirty 를 세우고 자식에게 전파한다. 재부모화는 기존 월드 행렬과 새 부모의 역행렬로 로컬을 구해 `XMMatrixDecompose` 로 분해한다.
 - **지연 변경** — Component 추가/삭제, GameObject 생성/삭제 모두 큐를 거쳐 프레임 끝에서만 컨테이너를 수정한다. 씬 전체를 갈아엎는 `Scene::Load` 는 렌더까지 끝난 뒤 `Game::HandleFrameEndCommands()` 에서 실행한다.
@@ -246,6 +288,7 @@ DirectXProj/
 - **분할 계수는 변의 중점으로 계산한다** — 패치마다 제멋대로 정하면 경계에 틈이 생긴다. 두 패치가 공유하는 변은 중점도 같으므로, 중점까지의 거리로 계산하면 양쪽이 반드시 같은 값을 얻는다.
 - **무한 지형에서는 쿼드트리를 쓰지 않는다** — 청크가 매 프레임 움직이면 트리를 다시 세워야 해서 이득이 사라진다. 청크 수가 수백 개 수준이라 하나씩 절두체 검사를 해도 충분하다. 자료구조는 상황에 맞게 고르는 것이지 항상 좋은 것이 있는 게 아니다.
 - **메뉴는 스크롤한다** — 항목이 늘어나도 화면을 넘치지 않도록, 들어가는 개수만 그리고 나머지는 굴려서 본다. 선택이 화면 밖으로 나가면 따라 스크롤한다.
+- **마우스는 움직였을 때만 선택을 가져간다** — 예전에는 커서 아래 항목을 매 프레임 선택으로 덮어써서, 커서가 메뉴 위에 가만히 있으면 ↑↓ 로 바꾼 선택이 다음 프레임에 되돌아갔다(씬에서 ESC 로 돌아온 직전 커서 위치가 항목 위면 키보드가 먹히지 않았다). 직전 프레임과 좌표가 달라진 프레임에만 호버를 선택으로 옮긴다.
 - **색상 램프는 지형 전체 기준으로** — 청크마다 자기 min/max 로 높이를 정규화하면 평평한 청크에도 눈이 덮인다. 정규화 기준은 반드시 지형 전체의 최저/최고 높이여야 한다.
 - **하늘은 정점 형식을 재사용한다** — 하늘 돔은 POSITION 과 방향만 쓰지만 터레인 정점 형식을 그대로 쓴다. 입력 레이아웃에 셰이더가 안 쓰는 항목이 더 있는 것은 허용되므로, 형식을 하나 더 만들 이유가 없다.
 - **모프 타깃 4개를 정점에 담는다** — LOD 마다 "다음 단계에서 이 정점이 가질 높이" 가 다르다. 4개를 `float4` 한 개로 정점에 넣어 두고, 셰이더에서 현재 LOD 성분만 1 인 `gLodSelect` 와 내적해 하나를 고른다. 분기 없이 값 하나를 뽑는 흔한 수법이다.

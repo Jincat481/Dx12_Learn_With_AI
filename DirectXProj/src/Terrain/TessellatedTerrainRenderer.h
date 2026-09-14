@@ -3,6 +3,7 @@
 #include "Engine/Component.h"
 #include "Graphics/Mesh.h"
 #include "Terrain/HeightField.h"
+#include "Engine/GroundProvider.h"
 
 class Graphics;
 
@@ -21,7 +22,7 @@ class Graphics;
 //  높이가 CPU 함수가 아니라 텍스처여야 하는 이유가 여기 있다.
 //  정점이 GPU 에서 생기므로 높이도 GPU 가 읽을 수 있어야 한다.
 // =============================================================
-class TessellatedTerrainRenderer : public Component
+class TessellatedTerrainRenderer : public Component, public IGroundProvider
 {
 public:
     TessellatedTerrainRenderer() = default;
@@ -51,6 +52,9 @@ public:
     void SetDistanceRange(float distance) { m_distanceRange = distance; }
 
     int GetPatchCount() const { return m_patchesX * m_patchesZ; }
+
+    // ---- 보강 : 지면 높이 (S66) ----
+    bool TryGetGroundHeight(float x, float z, float& outHeight) const override;
 
 private:
     bool BuildPatchGrid();

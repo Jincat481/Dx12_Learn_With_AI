@@ -1,9 +1,10 @@
 // =============================================================
 // TessPS.hlsl - 테셀레이션 지형 픽셀 셰이더 (스텝 7)
-//  스텝 2 의 높이 색상 램프와 램버트 조명을 그대로 쓴다.
+//  스텝 2 의 높이 색상 램프와 램버트 조명, 보강 단계의 안개(S64)를 쓴다.
 //  테셀레이션 자체를 보여주는 것이 목적이라 단순하게 유지한다.
 // =============================================================
 #include "TessCommon.hlsli"
+#include "Atmosphere.hlsli"
 
 float3 HeightColor(float t)
 {
@@ -35,5 +36,10 @@ float4 main(DomainOutput input) : SV_TARGET
     float diffuse = saturate(dot(normal, toLight));
     float lighting = saturate(ambient + diffuse * (1.0f - ambient));
 
-    return float4(baseColor * lighting, 1.0f);
+    float3 rgb = baseColor * lighting;
+
+    // 거리 안개 / 대기 원근 (S64)
+    rgb = ApplyAtmosphere(rgb, input.worldPos, gEyePosition.xyz, gFogColor, gFogParams, gLightDir.xyz);
+
+    return float4(rgb, 1.0f);
 }

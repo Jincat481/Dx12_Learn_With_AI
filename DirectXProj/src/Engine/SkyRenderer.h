@@ -44,6 +44,15 @@ public:
     void SetCloudSpeed(float speed) { m_cloudSpeed = speed; }
     void SetSunDirection(const DirectX::XMFLOAT3& direction);
 
+    // ---- 보강 : 거리 안개 / 대기 원근 (S64) ----
+    //  안개 색은 하늘의 지평선 색을 그대로 쓴다. 그래야 지형 끝이 하늘에 녹아든다.
+    void SetFogEnabled(bool enabled) { m_fogEnabled = enabled; }
+    bool IsFogEnabled() const { return m_fogEnabled; }
+    void ToggleFog() { m_fogEnabled = !m_fogEnabled; }
+
+    // start 부터 옅어지기 시작해 end 에서 완전히 덮는다. density 는 지수 안개의 짙기.
+    void SetFogRange(float start, float end, float density);
+
 private:
     bool BuildDome(int slices, int stacks, float radius);
 
@@ -59,4 +68,10 @@ private:
     float m_cloudCoverage = 0.48f;
     float m_cloudSpeed = 0.015f;
     float m_time = 0.0f;
+
+    bool  m_fogEnabled = true;
+    float m_fogStart = 150.0f;
+    float m_fogEnd = 900.0f;
+    float m_fogDensity = 0.0018f;
+    float m_sunScatter = 0.45f;     // SkyPS 의 태양 번짐 세기와 같은 값
 };

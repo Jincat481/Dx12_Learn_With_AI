@@ -96,6 +96,13 @@ int MenuScreen::Update(const InputManager& input, int viewportWidth, int viewpor
     const int mouseX = input.GetMouseX();
     const int mouseY = input.GetMouseY();
 
+    // 선택을 마우스 쪽으로 옮기는 것은 마우스가 실제로 움직인 프레임뿐이다.
+    //  매 프레임 옮기면 커서가 항목 위에 가만히 놓여 있는 동안
+    //  ↑↓ 로 바꾼 선택이 다음 프레임에 커서 아래 항목으로 되돌아가 키보드가 먹히지 않는다.
+    const bool mouseMoved = (mouseX != m_lastMouseX || mouseY != m_lastMouseY);
+    m_lastMouseX = mouseX;
+    m_lastMouseY = mouseY;
+
     m_hovered = kNoSelection;
     for (int i = 0; i < static_cast<int>(m_rects.size()); ++i)
     {
@@ -103,7 +110,8 @@ int MenuScreen::Update(const InputManager& input, int viewportWidth, int viewpor
         if (mouseX >= rect.left && mouseX < rect.right && mouseY >= rect.top && mouseY < rect.bottom)
         {
             m_hovered = m_scroll + i;
-            m_focused = m_hovered;
+            if (mouseMoved)
+                m_focused = m_hovered;
             break;
         }
     }

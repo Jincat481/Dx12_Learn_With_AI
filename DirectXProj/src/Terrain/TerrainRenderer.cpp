@@ -288,6 +288,10 @@ void TerrainRenderer::Render()
     const bool splat = m_splatEnabled && !m_wireframe;
     draw.splat = XMFLOAT4(m_splatTiling, splat ? 1.0f : 0.0f, 0.0f, 0.0f);
 
+    // 트라이플래너 (S63) : UV 로 반복하던 것과 같은 크기가 되도록 타일 한 장의 월드 길이를 구한다.
+    const float tileWorldSize = m_desc.GetWidth() / (std::max)(m_splatTiling * m_desc.uvTiling, 0.001f);
+    draw.surface = XMFLOAT4(m_triplanarEnabled ? 1.0f : 0.0f, tileWorldSize, 4.0f, 0.0f);
+
     if (splat)
     {
         for (int i = 0; i < kLayerCount; ++i)
@@ -295,6 +299,34 @@ void TerrainRenderer::Render()
     }
 
     m_graphics->DrawMesh(m_mesh, transform->GetWorldMatrix(), draw);
+}
+
+// -------------------------------------------------------------
+// 지면 높이 (S66)
+//  화면에 보이는 삼각형 표면의 높이를 돌려준다. 격자 밖이면 false.
+// -------------------------------------------------------------
+bool TerrainRenderer::TryGetGroundHeight(float x, float z, float& outHeight) const
+{
+    XMFLOAT3 offset(0.0f, 0.0f, 0.0f);
+    if (Transform* transform = GetTransform())
+        offset = transform->GetWorldPosition();   // 이동만 반영한다
+
+    const float halfWidth = m_desc.GetWidth() * 0.5f;
+    const float halfDepth = m_desc.GetDepth() * 0.5f;
+
+    const float localX = x - offset.x;
+    const float localZ = z - offset.z;
+
+    if (localX < -halfWidth || localX > halfWidth || localZ < -halfDepth || localZ > halfDepth)
+        return false;
+
+    // 평면 그리드(높이 끔)는 어디서나 0 이다.
+    const float surface = m_heightEnabled
+        ? terrain::SampleGridSurface(m_height, -halfWidth, halfDepth, m_desc.cellSize, localX, localZ)
+        : 0.0f;
+
+    outHeight = surface + offset.y;
+    return true;
 }
 
 void TerrainRenderer::ToJson(json::Value& out) const

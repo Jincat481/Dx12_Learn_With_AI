@@ -11,6 +11,8 @@ cbuffer TessConstants : register(b0)
     float4   gLightDir;       // xyz 방향   w 환경광
     float4   gHeightRange;    // x 최저   y 최고
     float4   gParams;         // x 와이어프레임   y 지형 크기(월드)   z 텍셀 크기
+    float4   gFogColor;       // rgb 안개 색   a 켜짐
+    float4   gFogParams;      // x 시작   y 끝   z 밀도   w 태양 산란
 };
 
 // 높이맵 : CPU 의 노이즈를 한 번 구워 올린 텍스처.

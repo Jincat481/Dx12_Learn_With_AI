@@ -55,6 +55,7 @@ public:
         DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.28f };  // xyz 방향 / w 환경광
         DirectX::XMFLOAT4 splat{ 24.0f, 0.0f, 0.0f, 0.0f };               // x 타일 / y 스플래팅 / z 디버그색 / w 모프
         DirectX::XMFLOAT4 lodSelect{ 0.0f, 0.0f, 0.0f, 0.0f };            // 현재 LOD 성분만 1
+        DirectX::XMFLOAT4 surface{ 0.0f, 12.0f, 4.0f, 0.0f };             // x 트라이플래너 / y 타일 월드 크기 / z 날카로움
         bool wireframe = false;
 
         // 인덱스 버퍼의 일부만 그릴 때 사용한다(청크 LOD). count 가 0 이면 메시 전체.
@@ -93,6 +94,19 @@ public:
 
     // 하늘은 깊이에 쓰지 않고 가장 먼저 그린다.
     void DrawSky(const Mesh& mesh, DirectX::FXMMATRIX world, const SkyDrawParams& params);
+
+    // ---- 대기 : 거리 안개 (S64) ----
+    //  안개는 지형 하나가 아니라 "그 씬의 공기" 라 Graphics 가 한 벌만 들고 있다.
+    //  하늘(SkyRenderer)이 Update 에서 채우고, 메시·테셀레이션을 그릴 때 모두 같은 값을 쓴다.
+    //  EndFrame 에서 꺼지므로 하늘이 없는 씬으로 넘어가도 안개가 남지 않는다.
+    struct FogSettings
+    {
+        DirectX::XMFLOAT4 color{ 0.62f, 0.72f, 0.86f, 0.0f };        // rgb 색 / a 켜짐
+        DirectX::XMFLOAT4 params{ 150.0f, 900.0f, 0.002f, 0.45f };   // x 시작 / y 끝 / z 밀도 / w 태양 산란
+    };
+
+    void SetFog(const FogSettings& fog) { m_fog = fog; }
+    const FogSettings& GetFog() const { return m_fog; }
 
     float GetAspectRatio() const;
     DirectX::XMFLOAT3 GetEyePosition3D() const { return m_eyePosition; }
@@ -153,6 +167,7 @@ private:
     DirectX::XMFLOAT4X4 m_view3D{};
     DirectX::XMFLOAT4X4 m_projection3D{};
     DirectX::XMFLOAT3   m_eyePosition{ 0.0f, 0.0f, 0.0f };
+    FogSettings         m_fog;             // 하늘이 매 프레임 채우고 EndFrame 에서 끈다
 
     ComPtr<ID3D11Buffer>           m_constantBuffer;   // b0 : WVP + color
     ComPtr<ID3D11SamplerState>     m_samplerState;     // s0

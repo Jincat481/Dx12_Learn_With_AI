@@ -5,6 +5,10 @@
 #include "Terrain/TerrainChunk.h"
 #include "Terrain/TerrainQuadTree.h"
 #include "Terrain/HeightField.h"
+#include "Terrain/ChunkBuildWorker.h"
+#include "Engine/GroundProvider.h"
+
+#include <unordered_set>
 
 class Graphics;
 
@@ -18,8 +22,9 @@ class Graphics;
 //
 //   - 절두체 컬링 : 보이지 않는 청크는 Draw 호출 자체를 하지 않는다 (스텝 5)
 //   - 거리 LOD    : 먼 청크는 인덱스 간격을 벌려 삼각형을 줄인다 (스텝 6)
+//   - 백그라운드 생성 : 무한 지형의 새 청크를 작업 스레드가 계산한다 (S65)
 // =============================================================
-class ChunkedTerrainRenderer : public Component
+class ChunkedTerrainRenderer : public Component, public IGroundProvider
 {
 public:
     // 무엇을 보여줄지
@@ -74,6 +79,28 @@ public:
 
     int GetRebuiltThisFrame() const { return m_rebuiltThisFrame; }
 
+    // ---- 보강 : 트라이플래너 (S63) ----
+    void SetTriplanarEnabled(bool enabled) { m_triplanarEnabled = enabled; }
+    bool IsTriplanarEnabled() const { return m_triplanarEnabled; }
+    void ToggleTriplanar() { m_triplanarEnabled = !m_triplanarEnabled; }
+
+    // ---- 보강 : 백그라운드 생성 (S65) ----
+    //  켜면 새 청크의 정점 계산은 작업 스레드가 하고, 메인 스레드는 버퍼만 만든다.
+    //  끄면 예전처럼 메인 스레드가 프레임당 몇 개씩 직접 만든다(비교용).
+    void SetAsyncBuildEnabled(bool enabled);
+    bool IsAsyncBuildEnabled() const { return m_asyncBuild; }
+    void ToggleAsyncBuild() { SetAsyncBuildEnabled(!m_asyncBuild); }
+
+    int    GetWorkerThreadCount() const { return m_worker.GetThreadCount(); }
+    size_t GetOutstandingBuildCount() const { return m_worker.GetOutstandingCount(); }
+    float  GetMainThreadBuildMs() const { return m_displayBuildMs; }   // 최근 0.5초 중 가장 오래 걸린 프레임
+
+    // 무한 지형에서 카메라가 어디 있든 지형이 있다고 보장되는 거리. 안개 끝 거리를 여기에 맞춘다.
+    float GetStreamingRadius() const;
+
+    // ---- 보강 : 지면 높이 (S66) ----
+    bool TryGetGroundHeight(float x, float z, float& outHeight) const override;
+
     void SetLodEnabled(bool enabled) { m_lodEnabled = enabled; }
     bool IsLodEnabled() const { return m_lodEnabled; }
     void ToggleLod() { m_lodEnabled = !m_lodEnabled; }
@@ -88,6 +115,11 @@ private:
     void UpdateInfiniteChunks(const DirectX::XMFLOAT3& eye);
     bool BuildChunkAt(size_t slot, int worldChunkX, int worldChunkZ);
     void CullChunksDirectly(const Frustum& frustum);
+
+    void ReceiveBuiltChunks();
+    int  SlotForWorldChunk(int worldX, int worldZ) const;
+    void RecordBuildCost(float milliseconds);
+    static uint64_t MakeChunkKey(int worldX, int worldZ);
 
     int  SelectLod(const DirectX::XMFLOAT3& chunkCenter, const DirectX::XMFLOAT3& eye) const;
     float SelectMorph(const DirectX::XMFLOAT3& chunkCenter, const DirectX::XMFLOAT3& eye) const;
@@ -130,6 +162,22 @@ private:
     int  m_centerChunkZ = 0;
     int  m_rebuildBudget = 3;      // 한 프레임에 다시 만들 청크 수 상한
     int  m_rebuiltThisFrame = 0;
+
+    // 백그라운드 생성 (S65)
+    terrain::ChunkBuildWorker m_worker;
+    std::shared_ptr<const terrain::HeightField> m_heightSnapshot;   // 작업 스레드에 넘기는 높이 함수 사본
+    std::unordered_set<uint64_t> m_inFlight;   // 주문했지만 아직 받지 않은 청크 좌표
+    uint32_t m_generation = 0;                 // 지형 설정이 바뀔 때마다 올린다
+    bool  m_asyncBuild = true;
+    int   m_uploadBudget = 6;                  // 한 프레임에 GPU 로 올릴 청크 수 상한
+    int   m_lastCenterX = 0;
+    int   m_lastCenterZ = 0;
+    bool  m_hasLastCenter = false;
+    float m_peakBuildMs = 0.0f;
+    float m_displayBuildMs = 0.0f;
+    float m_peakTimer = 0.0f;
+
+    bool m_triplanarEnabled = true;            // 보강 (S63)
 
     DisplayMode m_displayMode = DisplayMode::ChunkColor;
 

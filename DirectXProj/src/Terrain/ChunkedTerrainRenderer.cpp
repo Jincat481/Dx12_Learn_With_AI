@@ -5,9 +5,12 @@
 #include "Core/Graphics.h"
 #include "Graphics/TextureManager.h"
 #include "Utils/Paths.h"
+#include "Core/TimeManager.h"
 
 #include <limits>
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 
 using namespace DirectX;
 
@@ -15,11 +18,20 @@ void ChunkedTerrainRenderer::Initialize(Graphics* graphics)
 {
     m_graphics = graphics;
     LoadSplatLayers();
+
+    // 작업 스레드 (S65). 코어 하나는 메인 스레드(입력·렌더링)에 남겨 둔다.
+    const int cores = static_cast<int>(std::thread::hardware_concurrency());
+    m_worker.Start((std::max)(1, (std::min)(4, cores - 1)));
+
     RebuildChunks();
 }
 
 void ChunkedTerrainRenderer::OnDestroy()
 {
+    // 청크를 해제하기 전에 스레드부터 멈춘다. (작업 스레드는 청크를 만지지 않지만 순서를 지켜 둔다)
+    m_worker.Stop();
+    m_inFlight.clear();
+
     for (terrain::TerrainChunk& chunk : m_chunks)
         chunk.Release();
 
@@ -75,6 +87,13 @@ bool ChunkedTerrainRenderer::RebuildChunks()
 
     if (!m_graphics || !m_graphics->GetDevice())
         return false;
+
+    // 지형 설정이 바뀌었다. 옛 설정으로 주문한 작업은 모두 무효다. (S65)
+    //  세대 번호를 올려 두면 늦게 도착한 옛 결과를 알아보고 버릴 수 있다.
+    ++m_generation;
+    m_worker.CancelPending();
+    m_inFlight.clear();
+    m_heightSnapshot = std::make_shared<terrain::HeightField>(m_height);
 
     for (terrain::TerrainChunk& chunk : m_chunks)
         chunk.Release();
@@ -183,13 +202,39 @@ void ChunkedTerrainRenderer::UpdateInfiniteChunks(const XMFLOAT3& eye)
     if (chunkSize <= 0.0f)
         return;
 
+    // 이 함수가 메인 스레드에서 쓴 시간을 잰다. 동기/비동기 차이를 숫자로 보여 주기 위해서다.
+    const auto costStart = std::chrono::steady_clock::now();
+
     m_centerChunkX = static_cast<int>(std::floor(eye.x / chunkSize));
     m_centerChunkZ = static_cast<int>(std::floor(eye.z / chunkSize));
+
+    const bool centerMoved = !m_hasLastCenter ||
+                             m_centerChunkX != m_lastCenterX ||
+                             m_centerChunkZ != m_lastCenterZ;
+    m_lastCenterX = m_centerChunkX;
+    m_lastCenterZ = m_centerChunkZ;
+    m_hasLastCenter = true;
+
+    const bool async = m_asyncBuild && m_worker.IsRunning();
+
+    if (async)
+    {
+        // 1) 작업 스레드가 다 만든 청크를 GPU 에 올린다.
+        ReceiveBuiltChunks();
+
+        // 2) 카메라가 청크 경계를 넘었으면 줄 서 있는 요청의 "가까운 순서" 가 틀어졌다.
+        //    아직 시작하지 않은 것은 거둬들이고, 아래에서 새 순서로 다시 줄 세운다.
+        if (centerMoved)
+        {
+            for (const terrain::ChunkBuildRequest& canceled : m_worker.CancelPending())
+                m_inFlight.erase(MakeChunkKey(canceled.worldX, canceled.worldZ));
+        }
+    }
 
     const int halfX = m_chunksX / 2;
     const int halfZ = m_chunksZ / 2;
 
-    // 카메라에 가까운 것부터 다시 만든다. 한 프레임에 다 만들면 화면이 끊긴다.
+    // 3) 지금 위치에 필요한데 아직 없는 청크를 모은다. 카메라에 가까운 것부터.
     struct Pending { size_t slot; int worldX; int worldZ; int distance; };
     std::vector<Pending> pending;
 
@@ -212,18 +257,174 @@ void ChunkedTerrainRenderer::UpdateInfiniteChunks(const XMFLOAT3& eye)
         }
     }
 
-    if (pending.empty())
+    if (!pending.empty())
+    {
+        std::sort(pending.begin(), pending.end(),
+                  [](const Pending& a, const Pending& b) { return a.distance < b.distance; });
+
+        if (async)
+        {
+            // 주문만 넣고 바로 돌아온다. 이미 주문한 좌표는 다시 넣지 않는다.
+            for (const Pending& item : pending)
+            {
+                const uint64_t key = MakeChunkKey(item.worldX, item.worldZ);
+                if (m_inFlight.count(key) != 0)
+                    continue;
+
+                terrain::ChunkBuildRequest request;
+                request.worldX = item.worldX;
+                request.worldZ = item.worldZ;
+                request.generation = m_generation;
+                request.originX = item.worldX * chunkSize;           // BuildChunkAt 과 같은 규약
+                request.originZ = (item.worldZ + 1) * chunkSize;
+                request.cells = m_cellsPerChunk;
+                request.cellSize = m_cellSize;
+                request.skirt = m_skirtEnabled;
+                request.height = m_heightSnapshot;
+
+                m_worker.Submit(std::move(request));
+                m_inFlight.insert(key);
+            }
+        }
+        else
+        {
+            // 동기 방식 : 메인 스레드가 직접 만든다. 만드는 시간만큼 이번 프레임이 늦어진다.
+            const int budget = (std::min)(m_rebuildBudget, static_cast<int>(pending.size()));
+            for (int i = 0; i < budget; ++i)
+            {
+                BuildChunkAt(pending[i].slot, pending[i].worldX, pending[i].worldZ);
+                ++m_rebuiltThisFrame;
+            }
+        }
+    }
+
+    const auto costEnd = std::chrono::steady_clock::now();
+    RecordBuildCost(std::chrono::duration<float, std::milli>(costEnd - costStart).count());
+}
+
+// -------------------------------------------------------------
+// 작업 스레드가 끝낸 청크를 받아 GPU 버퍼로 만든다. (메인 스레드, S65)
+//  버퍼 생성도 공짜는 아니므로 한 프레임에 올리는 개수를 제한한다.
+// -------------------------------------------------------------
+void ChunkedTerrainRenderer::ReceiveBuiltChunks()
+{
+    if (!m_graphics || !m_graphics->GetDevice())
         return;
 
-    std::sort(pending.begin(), pending.end(),
-              [](const Pending& a, const Pending& b) { return a.distance < b.distance; });
+    std::vector<terrain::ChunkBuildResult> results;
+    m_worker.TakeCompleted(results, static_cast<size_t>(m_uploadBudget));
 
-    const int budget = (std::min)(m_rebuildBudget, static_cast<int>(pending.size()));
-    for (int i = 0; i < budget; ++i)
+    for (terrain::ChunkBuildResult& result : results)
     {
-        BuildChunkAt(pending[i].slot, pending[i].worldX, pending[i].worldZ);
+        // 지형 설정이 바뀌기 전에 주문한 결과다. 다른 지형의 조각이므로 버린다.
+        if (result.generation != m_generation)
+            continue;
+
+        m_inFlight.erase(MakeChunkKey(result.worldX, result.worldZ));
+
+        if (!result.ok)
+            continue;
+
+        // 계산하는 사이 카메라가 멀리 가 버렸으면 더는 필요 없다.
+        const int slot = SlotForWorldChunk(result.worldX, result.worldZ);
+        if (slot < 0)
+            continue;
+
+        ChunkSlot& state = m_slots[static_cast<size_t>(slot)];
+        if (state.valid && state.worldX == result.worldX && state.worldZ == result.worldZ)
+            continue;
+
+        const bool ok = m_chunks[static_cast<size_t>(slot)].Upload(m_graphics->GetDevice(), result.data);
+        state = ChunkSlot{ result.worldX, result.worldZ, ok };
         ++m_rebuiltThisFrame;
     }
+}
+
+// 월드 청크 좌표가 지금 카메라 기준으로 몇 번 슬롯에 들어가야 하는지. 범위 밖이면 -1.
+int ChunkedTerrainRenderer::SlotForWorldChunk(int worldX, int worldZ) const
+{
+    const int cx = worldX - m_centerChunkX + m_chunksX / 2;
+    const int cz = m_chunksZ / 2 - (worldZ - m_centerChunkZ);
+
+    if (cx < 0 || cx >= m_chunksX || cz < 0 || cz >= m_chunksZ)
+        return -1;
+
+    return cz * m_chunksX + cx;
+}
+
+// 두 정수 좌표를 64비트 키 하나로 합친다. 위 32비트 x, 아래 32비트 z.
+uint64_t ChunkedTerrainRenderer::MakeChunkKey(int worldX, int worldZ)
+{
+    return (static_cast<uint64_t>(static_cast<uint32_t>(worldX)) << 32) |
+           static_cast<uint64_t>(static_cast<uint32_t>(worldZ));
+}
+
+void ChunkedTerrainRenderer::SetAsyncBuildEnabled(bool enabled)
+{
+    if (m_asyncBuild == enabled)
+        return;
+
+    m_asyncBuild = enabled;
+
+    // 방식을 바꾸는 순간 주문 장부를 비운다. 계산 중이던 결과는 세대가 달라 도착해도 버려진다.
+    m_worker.CancelPending();
+    m_inFlight.clear();
+    ++m_generation;
+}
+
+// 값이 프레임마다 튀므로 최근 0.5초 동안의 최댓값을 보여 준다.
+// 화면이 끊겨 보이는 것은 평균이 아니라 "가장 느린 프레임" 때문이다.
+void ChunkedTerrainRenderer::RecordBuildCost(float milliseconds)
+{
+    m_peakBuildMs = (std::max)(m_peakBuildMs, milliseconds);
+    m_peakTimer += TimeManager::Get().GetDeltaTime();
+
+    if (m_peakTimer >= 0.5f)
+    {
+        m_displayBuildMs = m_peakBuildMs;
+        m_peakBuildMs = 0.0f;
+        m_peakTimer = 0.0f;
+    }
+}
+
+float ChunkedTerrainRenderer::GetStreamingRadius() const
+{
+    // 카메라는 가운데 청크 안 어디든 있을 수 있으므로 한 칸을 빼고 계산한다.
+    const float chunkSize = m_cellsPerChunk * m_cellSize;
+    const int halfChunks = (std::min)(m_chunksX, m_chunksZ) / 2;
+    return static_cast<float>((std::max)(1, halfChunks - 1)) * chunkSize;
+}
+
+// -------------------------------------------------------------
+// 지면 높이 (S66)
+//  보이는 삼각형과 같은 높이를 돌려준다. LOD 로 성겨진 먼 청크와는 조금 다를 수 있지만
+//  카메라가 서 있는 발밑은 항상 LOD 0 이라 문제가 없다.
+// -------------------------------------------------------------
+bool ChunkedTerrainRenderer::TryGetGroundHeight(float x, float z, float& outHeight) const
+{
+    XMFLOAT3 offset(0.0f, 0.0f, 0.0f);
+    if (Transform* transform = GetTransform())
+        offset = transform->GetWorldPosition();   // 이동만 반영한다 (회전·확대한 지형은 다루지 않는다)
+
+    const float localX = x - offset.x;
+    const float localZ = z - offset.z;
+
+    // 유한 지형은 청크가 깔린 범위 밖이면 땅이 없다. 무한 지형은 어디든 있다.
+    if (!m_infiniteEnabled)
+    {
+        const float chunkSize = m_cellsPerChunk * m_cellSize;
+        const float minX = (m_centerChunkX - m_chunksX / 2) * chunkSize;
+        const float maxX = minX + m_chunksX * chunkSize;
+        const float maxZ = (m_centerChunkZ + m_chunksZ / 2 + 1) * chunkSize;
+        const float minZ = maxZ - m_chunksZ * chunkSize;
+
+        if (localX < minX || localX > maxX || localZ < minZ || localZ > maxZ)
+            return false;
+    }
+
+    // 청크 원점은 모두 칸 크기의 배수라 월드 원점(0, 0)을 격자 기준점으로 쓸 수 있다.
+    outHeight = terrain::SampleGridSurface(m_height, 0.0f, 0.0f, m_cellSize, localX, localZ) + offset.y;
+    return true;
 }
 
 // 무한 지형에서는 청크가 계속 움직이므로 쿼드트리를 매번 다시 세우기 어렵다.
@@ -433,6 +634,11 @@ void ChunkedTerrainRenderer::Render()
         draw.heightRange = XMFLOAT4(m_globalMinHeight, m_globalMaxHeight, 0.0f, 0.0f);
         const float morph = m_chunkMorph[index];
         draw.splat = XMFLOAT4(6.0f, splat ? 1.0f : 0.0f, debugColor ? 1.0f : 0.0f, morph);
+
+        // 트라이플래너 (S63) : 청크 하나에 6장 반복하던 것과 같은 크기로 월드 좌표에서 찍는다.
+        draw.surface = XMFLOAT4(m_triplanarEnabled ? 1.0f : 0.0f,
+                                (m_cellsPerChunk * m_cellSize) / 6.0f,
+                                4.0f, 0.0f);
 
         // 현재 LOD 에 해당하는 모프 타깃만 고르도록 성분 하나만 1 로 둔다.
         draw.lodSelect = XMFLOAT4(lod == 0 ? 1.0f : 0.0f,

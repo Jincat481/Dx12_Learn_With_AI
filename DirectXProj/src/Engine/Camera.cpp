@@ -5,6 +5,9 @@
 #include "Input/InputManager.h"
 #include "Engine/GameObject.h"
 #include "Engine/Transform.h"
+#include "Engine/Scene.h"
+#include "Engine/SceneManager.h"
+#include "Engine/GroundProvider.h"
 
 using namespace DirectX;
 
@@ -100,9 +103,11 @@ void Camera::Update()
         if (const int wheel = input.GetMouseWheelDelta(); wheel != 0)
         {
             const float notches = static_cast<float>(wheel) / WHEEL_DELTA;
-            m_moveSpeed *= std::pow(m_wheelStep, notches);
-            m_moveSpeed = (std::max)(kMinMoveSpeed, (std::min)(kMaxMoveSpeed, m_moveSpeed));
-            dxutil::DebugLog(L"[Camera] 이동 속도 %.1f", m_moveSpeed);
+            // 걷기와 비행은 속도를 따로 기억한다. 비행 속도로 걸으면 너무 빠르다.
+            float& speed = m_walking ? m_walkSpeed : m_moveSpeed;
+            speed *= std::pow(m_wheelStep, notches);
+            speed = (std::max)(kMinMoveSpeed, (std::min)(kMaxMoveSpeed, speed));
+            dxutil::DebugLog(L"[Camera] 이동 속도 %.1f", speed);
         }
 
         // ---- 이동 ----
@@ -120,7 +125,30 @@ void Camera::Update()
         if (input.GetKey('E')) moveUp      += 1.0f;
         if (input.GetKey('Q')) moveUp      -= 1.0f;
 
-        if (moveForward != 0.0f || moveRight != 0.0f || moveUp != 0.0f)
+        if (m_walking)
+        {
+            // 걷기 : 보는 방향을 수평으로 눕혀 쓴다. 하늘을 보고 W 를 눌러도 떠오르지 않는다.
+            float flatX = forward.x;
+            float flatZ = forward.z;
+            const float flatLength = std::sqrt(flatX * flatX + flatZ * flatZ);
+            if (flatLength > 1.0e-4f)
+            {
+                flatX /= flatLength;
+                flatZ /= flatLength;
+            }
+
+            const float step = m_walkSpeed * deltaTime;
+            m_position.x += (flatX * moveForward + right.x * moveRight) * step;
+            m_position.z += (flatZ * moveForward + right.z * moveRight) * step;
+
+            // 땅에 서 있을 때만 뛸 수 있다. 공중에서 또 누르면 무시한다.
+            if (input.GetKeyDown(VK_SPACE) && m_grounded)
+            {
+                m_verticalVelocity = m_jumpSpeed;
+                m_grounded = false;
+            }
+        }
+        else if (moveForward != 0.0f || moveRight != 0.0f || moveUp != 0.0f)
         {
             const float step = m_moveSpeed * deltaTime;
 
@@ -135,10 +163,125 @@ void Camera::Update()
     {
         m_position = XMFLOAT3(0.0f, 60.0f, -90.0f);
         LookAt(XMFLOAT3(0.0f, 0.0f, 0.0f));
+        m_verticalVelocity = 0.0f;
     }
+
+    // ---- G : 비행 ↔ 걷기 ----
+    if (input.GetKeyDown('G'))
+        SetWalking(!m_walking);
+
+    // 이동이 끝난 위치를 땅과 맞춘다.
+    ApplyGround(deltaTime);
 
     WriteToTransform();
     ApplyToGraphics();
+}
+
+void Camera::SetWalking(bool walking)
+{
+    m_walking = walking;
+    m_verticalVelocity = 0.0f;
+    m_grounded = false;
+    dxutil::DebugLog(L"[Camera] %s", walking ? L"걷기 모드" : L"비행 모드");
+}
+
+// -------------------------------------------------------------
+// 지면 처리 (S66)
+//  비행 : 땅 높이 + 최소 간격 아래로는 내려가지 못한다 (땅속으로 파고들지 않게)
+//  걷기 : 매 프레임 중력을 받아 떨어지고, 땅에 닿으면 눈높이에서 멈춘다
+//
+//  중력은 오일러 적분으로 처리한다.
+//      속도 += 가속도 * dt
+//      위치 += 속도   * dt
+// -------------------------------------------------------------
+void Camera::ApplyGround(float deltaTime)
+{
+    float ground = 0.0f;
+    m_hasGround = QueryGround(m_position.x, m_position.z, ground);
+
+    if (!m_hasGround)
+    {
+        // 지형 밖(또는 지형이 없는 씬)은 막을 것이 없다. 걷기 중이면 그 자리에 떠 있는다.
+        m_grounded = false;
+        m_verticalVelocity = 0.0f;
+        return;
+    }
+
+    if (!m_walking)
+    {
+        const float lowest = ground + m_minClearance;
+        if (m_position.y < lowest)
+            m_position.y = lowest;
+        return;
+    }
+
+    // 씬을 불러온 직후처럼 한 프레임이 길면 한 번에 땅을 뚫고 떨어지므로 잘라 둔다.
+    const float dt = (std::min)(deltaTime, 0.1f);
+    const float feet = ground + m_eyeHeight;
+
+    // 내리막 : 땅이 중력보다 빨리 내려가면 계단을 뛰어내리듯 통통 튄다.
+    //  방금까지 서 있었고 낙차가 작으면 떨어뜨리지 않고 땅에 붙인다. 오르막도 여기서 올라선다.
+    if (m_grounded && m_verticalVelocity <= 0.0f && m_position.y - feet <= m_snapDistance)
+    {
+        m_position.y = feet;
+        return;
+    }
+
+    m_verticalVelocity -= m_gravity * dt;
+    m_position.y += m_verticalVelocity * dt;
+
+    if (m_position.y <= feet)
+    {
+        m_position.y = feet;          // 착지
+        m_verticalVelocity = 0.0f;
+        m_grounded = true;
+    }
+    else
+    {
+        m_grounded = false;
+    }
+}
+
+// -------------------------------------------------------------
+// 씬에서 땅 높이를 알려 줄 수 있는 컴포넌트를 찾는다.
+//  카메라는 지형의 종류를 모른다. IGroundProvider 를 구현했는지만 본다.
+//  씬을 다시 불러와도(F9) 따로 연결할 필요가 없다. 여러 개가 겹치면 가장 높은 땅을 쓴다.
+// -------------------------------------------------------------
+bool Camera::QueryGround(float x, float z, float& outHeight) const
+{
+    const GameObject* owner = GetOwner();
+    const Scene* scene = (owner && owner->GetScene()) ? owner->GetScene()
+                                                      : SceneManager::Get().GetActiveScene();
+    if (!scene)
+        return false;
+
+    bool found = false;
+
+    for (const auto& object : scene->GetGameObjects())
+    {
+        if (!object || object->IsPendingDestroy() || !object->IsActive())
+            continue;
+
+        for (const auto& entry : object->GetComponentMap())
+        {
+            for (const auto& component : entry.second)
+            {
+                if (!component || component->IsPendingDestroy() || !component->IsEnabled())
+                    continue;
+
+                const IGroundProvider* provider = dynamic_cast<const IGroundProvider*>(component.get());
+                float height = 0.0f;
+
+                if (provider && provider->TryGetGroundHeight(x, z, height))
+                {
+                    outHeight = found ? (std::max)(outHeight, height) : height;
+                    found = true;
+                }
+            }
+        }
+    }
+
+    return found;
 }
 
 // -------------------------------------------------------------
@@ -234,6 +377,7 @@ void Camera::ToJson(json::Value& out) const
     out["pitch"]     = json::Value(m_pitch);
     out["fovY"]      = json::Value(m_fovYDegrees);
     out["moveSpeed"] = json::Value(m_moveSpeed);
+    out["walking"]   = json::Value(m_walking);
 }
 
 void Camera::FromJson(const json::Value& in)
@@ -251,6 +395,7 @@ void Camera::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("pitch"))     m_pitch       = value->AsFloat(m_pitch);
     if (const json::Value* value = in.Find("fovY"))      m_fovYDegrees = value->AsFloat(m_fovYDegrees);
     if (const json::Value* value = in.Find("moveSpeed")) m_moveSpeed   = value->AsFloat(m_moveSpeed);
+    if (const json::Value* value = in.Find("walking"))   m_walking     = value->AsBool(m_walking);
 
     m_pitch = (std::max)(-kMaxPitch, (std::min)(kMaxPitch, m_pitch));
 }

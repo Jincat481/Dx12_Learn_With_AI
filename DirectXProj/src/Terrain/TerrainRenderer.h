@@ -5,6 +5,7 @@
 #include "Terrain/TerrainMeshBuilder.h"
 #include "Terrain/HeightField.h"
 #include "Graphics/Texture.h"
+#include "Engine/GroundProvider.h"
 
 class Graphics;
 
@@ -15,7 +16,7 @@ class Graphics;
 //  스텝 2 이후에 하이트맵을 넣더라도 이 클래스의 구조는 그대로 두고
 //  TerrainMeshBuilder 가 채우는 y 값과 normal 만 달라지면 된다.
 // =============================================================
-class TerrainRenderer : public Component
+class TerrainRenderer : public Component, public IGroundProvider
 {
 public:
     TerrainRenderer() = default;
@@ -79,12 +80,20 @@ public:
     bool IsSplattingEnabled() const { return m_splatEnabled; }
     void SetSplatTiling(float tiling) { m_splatTiling = tiling; }
 
+    // ---- 보강 : 트라이플래너 (S63) ----
+    void SetTriplanarEnabled(bool enabled) { m_triplanarEnabled = enabled; }
+    bool IsTriplanarEnabled() const { return m_triplanarEnabled; }
+    void ToggleTriplanar() { m_triplanarEnabled = !m_triplanarEnabled; }
+
     void SetNoiseType(terrain::NoiseType type);
     terrain::NoiseType GetNoiseType() const { return m_height.GetParams().noiseType; }
     void ToggleNoiseType();
 
     UINT GetVertexCount()   const { return m_mesh.GetVertexCount(); }
     UINT GetTriangleCount() const { return m_mesh.GetIndexCount() / 3; }
+
+    // ---- 보강 : 지면 높이 (S66) ----
+    bool TryGetGroundHeight(float x, float z, float& outHeight) const override;
 
 private:
     bool RebuildMesh();
@@ -111,6 +120,7 @@ private:
     std::shared_ptr<Texture> m_layers[kLayerCount];
     bool  m_splatEnabled = false;
     float m_splatTiling = 24.0f;
+    bool  m_triplanarEnabled = true;    // 보강 (S63)
 
     DirectX::XMFLOAT4 m_color{ 0.30f, 0.42f, 0.34f, 1.0f };        // 지면 색
     DirectX::XMFLOAT4 m_wireColor{ 0.55f, 0.75f, 0.95f, 1.0f };    // 와이어프레임 색

@@ -19,6 +19,9 @@ class Graphics;
 //    Q / E      : 월드 기준 아래 / 위
 //    휠         : 이동 속도 조절
 //  F : 기본 위치로 리셋 (버튼과 무관)
+//  G : 비행 ↔ 걷기 (S66)
+//      비행 : 땅속으로만 못 들어간다
+//      걷기 : 중력을 받아 땅 위에 눈높이만큼 떠서 선다. 우클릭 + Space 로 점프
 //
 //  왜 상하만 제한하나 :
 //   pitch 가 ±90도를 넘으면 화면이 뒤집힌다. 정확히 ±90도에서는
@@ -49,10 +52,18 @@ public:
     DirectX::XMFLOAT3 GetForward() const;
     DirectX::XMFLOAT3 GetRight() const;
 
+    // ---- 보강 : 지면 (S66) ----
+    void SetWalking(bool walking);
+    bool IsWalking() const { return m_walking; }
+    bool HasGround() const { return m_hasGround; }
+
 private:
     void ApplyToGraphics();
     void WriteToTransform();
     bool SyncFromTransformIfEditedExternally();
+
+    void ApplyGround(float deltaTime);
+    bool QueryGround(float x, float z, float& outHeight) const;
 
     Graphics* m_graphics = nullptr;
 
@@ -67,6 +78,18 @@ private:
     float m_lookSpeed = 0.15f;    // 픽셀당 도
     float m_moveSpeed = 40.0f;    // 초당 월드 단위
     float m_wheelStep = 1.15f;    // 휠 한 눈금당 이동 속도 배율
+
+    // 지면 (S66)
+    bool  m_walking = false;
+    bool  m_hasGround = false;        // 발밑에 땅이 있는가 (지형 밖이면 false)
+    bool  m_grounded = false;         // 땅에 발을 딛고 있는가
+    float m_walkSpeed = 14.0f;        // 걷기 속도 (초당 월드 단위)
+    float m_eyeHeight = 1.8f;         // 발에서 눈까지
+    float m_minClearance = 1.0f;      // 비행 중 땅과 유지할 최소 간격
+    float m_gravity = 30.0f;          // 초당 속도 변화량
+    float m_jumpSpeed = 11.0f;
+    float m_verticalVelocity = 0.0f;
+    float m_snapDistance = 1.2f;      // 내리막에서 이만큼 차이는 떨어지지 않고 붙어 간다
 
     // 우클릭 룩 상태
     bool m_looking = false;

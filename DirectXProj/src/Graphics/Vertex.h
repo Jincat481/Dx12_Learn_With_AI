@@ -48,9 +48,8 @@ struct TerrainVertex
     static constexpr UINT kLayoutCount = 4;
 };
 
-// 터레인 상수 버퍼 (b0)
-//  float4x4(64) + float4x4(64) + float4(16) + float4(16) = 160 bytes (16의 배수)
-//  64 + 64 + 16 * 5 = 208 bytes (16의 배수)
+// 터레인 상수 버퍼 (b0) - Shaders/TerrainCommon.hlsli 와 순서가 같아야 한다
+//  float4x4 2개(128) + float4 10개(160) = 288 bytes (16의 배수)
 struct TerrainConstantBuffer
 {
     DirectX::XMFLOAT4X4 wvp;
@@ -61,9 +60,13 @@ struct TerrainConstantBuffer
     DirectX::XMFLOAT4   lightDirection;// xyz : 방향광이 나아가는 방향  w : 환경광 세기
     DirectX::XMFLOAT4   splat;         // x : 타일 반복  y : 스플래팅  z : 디버그 단색  w : 모프 계수
     DirectX::XMFLOAT4   lodSelect;     // 현재 LOD 에 해당하는 성분만 1 (모프 타깃 선택용)
+    DirectX::XMFLOAT4   eyePosition;   // xyz : 카메라 위치 (안개 거리 계산)
+    DirectX::XMFLOAT4   surface;       // x : 트라이플래너  y : 타일 한 장의 월드 크기  z : 블렌드 날카로움
+    DirectX::XMFLOAT4   fogColor;      // rgb : 안개 색  a : 켜짐
+    DirectX::XMFLOAT4   fogParams;     // x : 시작 거리  y : 끝 거리  z : 밀도  w : 태양 산란
 };
 
-// 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 5 = 208 bytes
+// 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 7 = 240 bytes
 struct TessConstantBuffer
 {
     DirectX::XMFLOAT4X4 wvp;
@@ -73,6 +76,8 @@ struct TessConstantBuffer
     DirectX::XMFLOAT4   lightDirection;
     DirectX::XMFLOAT4   heightRange;
     DirectX::XMFLOAT4   params;        // x 와이어프레임 / y 지형 크기 / z 텍셀 크기
+    DirectX::XMFLOAT4   fogColor;      // rgb 안개 색 / a 켜짐
+    DirectX::XMFLOAT4   fogParams;     // x 시작 / y 끝 / z 밀도 / w 태양 산란
 };
 
 // 하늘 상수 버퍼 (b0) : 64 + 16 * 4 = 128 bytes

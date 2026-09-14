@@ -6,6 +6,9 @@
 //  "무슨 키를 누르면 무엇이 바뀌는지" 를 화면 왼쪽 아래에 보여준다.
 //  현재 상태(예: 지금 표시 모드)를 함께 띄워서, 눌러 보지 않아도
 //  무엇이 바뀔지 알 수 있게 한다.
+//
+//  열 위치와 패널 폭은 고정값이 아니라 그릴 때 글자 폭을 재서 정한다.
+//  줄이 늘거나 설명이 길어져도 설명과 값이 겹치지 않는다.
 // =============================================================
 class ControlsPanel
 {
@@ -31,7 +34,8 @@ private:
     std::vector<Line> m_lines;
     bool m_visible = true;
 
-    static constexpr int kPanelWidth = 330;
+    static constexpr int kPanelWidth = 330;        // 최소 폭 (내용이 길면 넓어진다)
+    static constexpr int kColumnGap = 12;          // 설명 열과 값 열 사이
     static constexpr int kMargin = 12;
     static constexpr int kPadding = 10;
     static constexpr int kHeaderHeight = 24;

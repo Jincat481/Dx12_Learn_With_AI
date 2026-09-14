@@ -46,6 +46,10 @@ private:
     int m_focused = 0;
     int m_scroll = 0;          // 맨 위에 보일 항목 번호
 
+    // 마우스가 실제로 움직였는지 판단하기 위한 직전 좌표
+    int m_lastMouseX = -1;
+    int m_lastMouseY = -1;
+
     RECT m_panelRect{};
     RECT m_listRect{};
 

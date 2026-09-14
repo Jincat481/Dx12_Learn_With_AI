@@ -132,6 +132,7 @@
     <ClCompile Include="src\Terrain\TerrainMeshBuilder.cpp" />
     <ClCompile Include="src\Terrain\TerrainRenderer.cpp" />
     <ClCompile Include="src\Terrain\TessellatedTerrainRenderer.cpp" />
+    <ClCompile Include="src\Terrain\ChunkBuildWorker.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
@@ -179,6 +180,8 @@
     <ClInclude Include="src\Terrain\TerrainMeshBuilder.h" />
     <ClInclude Include="src\Terrain\TerrainRenderer.h" />
     <ClInclude Include="src\Terrain\TessellatedTerrainRenderer.h" />
+    <ClInclude Include="src\Terrain\ChunkBuildWorker.h" />
+    <ClInclude Include="src\Engine\GroundProvider.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />
@@ -190,6 +193,8 @@
   <ItemGroup>
     <None Include="Shaders\SpriteVS.hlsl" />
     <None Include="Shaders\SpritePS.hlsl" />
+    <None Include="Shaders\TerrainCommon.hlsli" />
+    <None Include="Shaders\Atmosphere.hlsli" />
     <None Include="Shaders\TerrainVS.hlsl" />
     <None Include="Shaders\TerrainPS.hlsl" />
     <None Include="Shaders\SkyVS.hlsl" />

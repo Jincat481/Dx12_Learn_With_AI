@@ -12,7 +12,28 @@ namespace terrain
                              int cells, float cellSize,
                              const HeightField* height)
     {
-        if (!device || cells <= 0 || cellSize <= 0.0f)
+        if (!device)
+            return false;
+
+        ChunkMeshData data;
+        if (!BuildMeshData(originX, originZ, cells, cellSize, m_skirtEnabled, height, data))
+            return false;
+
+        return Upload(device, data);
+    }
+
+    // -------------------------------------------------------------
+    // 1단계 : CPU 계산
+    //  여기서는 멤버 변수를 하나도 쓰지 않는다. 입력은 인자, 출력은 out 뿐이다.
+    //  그래서 여러 작업 스레드가 동시에 불러도 서로 부딪히지 않는다. (S65)
+    //  HeightField::Sample 도 const 이고 내부 상태를 바꾸지 않는다.
+    // -------------------------------------------------------------
+    bool TerrainChunk::BuildMeshData(float originX, float originZ,
+                                     int cells, float cellSize, bool skirt,
+                                     const HeightField* height,
+                                     ChunkMeshData& out)
+    {
+        if (cells <= 0 || cellSize <= 0.0f)
             return false;
 
         const int cols = cells + 1;   // 한 변의 정점 수
@@ -21,8 +42,8 @@ namespace terrain
         //  모프 타깃(다음 LOD 에서의 높이)을 계산하려면 이웃 높이가 필요하다.
         std::vector<float> heights(static_cast<size_t>(cols) * cols, 0.0f);
 
-        m_minHeight = (std::numeric_limits<float>::max)();
-        m_maxHeight = -(std::numeric_limits<float>::max)();
+        out.minHeight = (std::numeric_limits<float>::max)();
+        out.maxHeight = -(std::numeric_limits<float>::max)();
 
         for (int r = 0; r < cols; ++r)
         {
@@ -33,8 +54,8 @@ namespace terrain
                 const float y = height ? height->Sample(x, z) : 0.0f;
 
                 heights[static_cast<size_t>(r) * cols + c] = y;
-                m_minHeight = (std::min)(m_minHeight, y);
-                m_maxHeight = (std::max)(m_maxHeight, y);
+                out.minHeight = (std::min)(out.minHeight, y);
+                out.maxHeight = (std::max)(out.maxHeight, y);
             }
         }
 
@@ -64,8 +85,9 @@ namespace terrain
 
         // ---- 2) 정점 ----
         //  LOD 는 인덱스만 바꿔 만들 것이므로 정점은 가장 촘촘한 한 벌만 만든다.
-        std::vector<TerrainVertex> vertices;
-        vertices.reserve(static_cast<size_t>(cols) * cols);
+        std::vector<TerrainVertex>& vertices = out.vertices;
+        vertices.clear();
+        vertices.reserve(static_cast<size_t>(cols) * cols + static_cast<size_t>(cells) * 4);
 
         for (int r = 0; r < cols; ++r)
         {
@@ -122,7 +144,7 @@ namespace terrain
         // ---- 3) 스커트 정점 (S52) ----
         //  이웃 청크와 LOD 가 다르면 경계에 틈이 벌어진다.
         //  테두리를 따라 아래로 내려뜨린 "치마" 를 붙여 그 틈을 메운다.
-        const float skirtDepth = (std::max)(cellSize * 4.0f, (m_maxHeight - m_minHeight) * 0.3f);
+        const float skirtDepth = (std::max)(cellSize * 4.0f, (out.maxHeight - out.minHeight) * 0.3f);
 
         // 테두리를 한 바퀴 도는 순서 : 위 -> 오른쪽 -> 아래 -> 왼쪽
         std::vector<int> ringVertex;
@@ -136,29 +158,30 @@ namespace terrain
         const uint32_t skirtBase = static_cast<uint32_t>(vertices.size());
         for (int gridIndex : ringVertex)
         {
-            TerrainVertex skirt = vertices[gridIndex];
-            skirt.position.y -= skirtDepth;
-            skirt.morphTargets.x -= skirtDepth;
-            skirt.morphTargets.y -= skirtDepth;
-            skirt.morphTargets.z -= skirtDepth;
-            skirt.morphTargets.w -= skirtDepth;
-            vertices.push_back(skirt);
+            TerrainVertex skirtVertex = vertices[gridIndex];
+            skirtVertex.position.y -= skirtDepth;
+            skirtVertex.morphTargets.x -= skirtDepth;
+            skirtVertex.morphTargets.y -= skirtDepth;
+            skirtVertex.morphTargets.z -= skirtDepth;
+            skirtVertex.morphTargets.w -= skirtDepth;
+            vertices.push_back(skirtVertex);
         }
 
         const int ringCount = static_cast<int>(ringVertex.size());
 
         // ---- 인덱스 : LOD 단계별로 이어 붙인다 ----
         //  stride 를 2배씩 벌리면 삼각형 수가 1/4 로 줄어든다.
-        std::vector<uint32_t> indices;
+        std::vector<uint32_t>& indices = out.indices;
+        indices.clear();
 
-        m_lodCount = 0;
-        for (int lod = 0; lod < kMaxLod; ++lod)
+        out.lodCount = 0;
+        for (int lod = 0; lod < kChunkMaxLod; ++lod)
         {
             const int stride = 1 << lod;
             if (cells % stride != 0 || (cells / stride) < 1)
                 break;
 
-            m_indexOffset[lod] = static_cast<UINT>(indices.size());
+            out.indexOffset[lod] = static_cast<UINT>(indices.size());
 
             const int steps = cells / stride;
             for (int r = 0; r < steps; ++r)
@@ -186,7 +209,7 @@ namespace terrain
             }
 
             // 이 LOD 의 테두리 간격에 맞춰 스커트를 두른다.
-            if (m_skirtEnabled && ringCount % stride == 0)
+            if (skirt && ringCount % stride == 0)
             {
                 for (int k = 0; k < ringCount; k += stride)
                 {
@@ -207,28 +230,51 @@ namespace terrain
                 }
             }
 
-            m_indexCount[lod] = static_cast<UINT>(indices.size()) - m_indexOffset[lod];
-            ++m_lodCount;
+            out.indexCount[lod] = static_cast<UINT>(indices.size()) - out.indexOffset[lod];
+            ++out.lodCount;
         }
 
-        if (m_lodCount == 0 || indices.empty())
+        if (out.lodCount == 0 || indices.empty())
             return false;
 
         // ---- 경계 상자 ----
         //  스커트가 아래로 내려가므로 상자도 그만큼 넓혀야 컬링에서 잘리지 않는다.
-        const float boxMin = m_minHeight - (m_skirtEnabled ? skirtDepth : 0.0f);
+        const float boxMin = out.minHeight - (skirt ? skirtDepth : 0.0f);
         const float half = cells * cellSize * 0.5f;
-        m_center = XMFLOAT3(originX + half,
-                            (boxMin + m_maxHeight) * 0.5f,
-                            originZ - half);
-        m_extents = XMFLOAT3(half,
-                             (std::max)((m_maxHeight - boxMin) * 0.5f, 0.01f),
-                             half);
+        out.center = XMFLOAT3(originX + half,
+                              (boxMin + out.maxHeight) * 0.5f,
+                              originZ - half);
+        out.extents = XMFLOAT3(half,
+                               (std::max)((out.maxHeight - boxMin) * 0.5f, 0.01f),
+                               half);
+        return true;
+    }
 
+    // -------------------------------------------------------------
+    // 2단계 : GPU 업로드 (메인 스레드)
+    // -------------------------------------------------------------
+    bool TerrainChunk::Upload(ID3D11Device* device, const ChunkMeshData& data)
+    {
+        if (!device || data.vertices.empty() || data.indices.empty() || data.lodCount == 0)
+            return false;
+
+        for (int lod = 0; lod < kMaxLod; ++lod)
+        {
+            m_indexOffset[lod] = data.indexOffset[lod];
+            m_indexCount[lod] = data.indexCount[lod];
+        }
+        m_lodCount = data.lodCount;
+
+        m_center = data.center;
+        m_extents = data.extents;
+        m_minHeight = data.minHeight;
+        m_maxHeight = data.maxHeight;
+
+        // Mesh::Create 는 이전 버퍼를 먼저 해제하므로 슬롯을 재활용해도 새지 않는다.
         return m_mesh.Create(device,
-                             vertices.data(), static_cast<UINT>(vertices.size()),
+                             data.vertices.data(), static_cast<UINT>(data.vertices.size()),
                              static_cast<UINT>(sizeof(TerrainVertex)),
-                             indices.data(), static_cast<UINT>(indices.size()));
+                             data.indices.data(), static_cast<UINT>(data.indices.size()));
     }
 
     void TerrainChunk::Release()

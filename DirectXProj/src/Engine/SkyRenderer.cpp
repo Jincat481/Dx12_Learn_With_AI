@@ -92,10 +92,30 @@ bool SkyRenderer::BuildDome(int slices, int stacks, float radius)
                          indices.data(), static_cast<UINT>(indices.size()));
 }
 
+void SkyRenderer::SetFogRange(float start, float end, float density)
+{
+    m_fogStart = (std::max)(0.0f, start);
+    m_fogEnd = (std::max)(m_fogStart + 1.0f, end);
+    m_fogDensity = (std::max)(0.0f, density);
+}
+
 void SkyRenderer::Update()
 {
     // 구름이 흘러가려면 시간이 필요하다.
     m_time += TimeManager::Get().GetDeltaTime();
+
+    // ---- 대기 원근 (S64) ----
+    //  안개는 지형이 아니라 공기의 성질이라 하늘이 들고 있다.
+    //  Graphics 는 프레임이 끝나면 안개를 끄므로 매 프레임 다시 켜 준다.
+    //  Update 는 모든 Render 보다 먼저 돌기 때문에 이번 프레임의 지형이 이 값을 쓴다.
+    if (m_graphics)
+    {
+        Graphics::FogSettings fog;
+        fog.color = XMFLOAT4(m_horizonColor.x, m_horizonColor.y, m_horizonColor.z,
+                             m_fogEnabled ? 1.0f : 0.0f);
+        fog.params = XMFLOAT4(m_fogStart, m_fogEnd, m_fogDensity, m_sunScatter);
+        m_graphics->SetFog(fog);
+    }
 }
 
 void SkyRenderer::Render()

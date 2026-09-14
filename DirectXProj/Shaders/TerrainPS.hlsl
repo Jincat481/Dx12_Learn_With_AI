@@ -1,20 +1,12 @@
 // =============================================================
-// TerrainPS.hlsl - 터레인 픽셀 셰이더 (스텝 1)
-//  아직 텍스처도 조명도 없다. UV 로 격자선만 그려서
-//  메시가 몇 칸으로 나뉘어 있는지 눈으로 보이게 한다.
+// TerrainPS.hlsl - 터레인 픽셀 셰이더
+//  스텝 1 : UV 격자선
+//  스텝 2 : 높이 색상 + 램버트 조명
+//  스텝 4 : 텍스처 스플래팅
+//  보강   : 트라이플래너 매핑 (S63) · 거리 안개 / 대기 원근 (S64)
 // =============================================================
-
-cbuffer TerrainConstants : register(b0)
-{
-    float4x4 gWVP;
-    float4x4 gWorld;
-    float4   gColor;         // 평면 모드의 기본 색
-    float4   gParams;        // x,y : 격자 칸 수   z : 와이어프레임   w : 높이 사용(0/1)
-    float4   gHeightRange;   // x : 최저 높이   y : 최고 높이
-    float4   gLightDir;      // xyz : 방향광이 나아가는 방향   w : 환경광 세기
-    float4   gSplat;         // x : 타일 반복   y : 스플래팅   z : 디버그 단색   w : 모프 계수
-    float4   gLodSelect;     // 현재 LOD 성분만 1
-};
+#include "TerrainCommon.hlsli"
+#include "Atmosphere.hlsli"
 
 // 스플래팅 레이어 (S44)
 Texture2D    gDirt  : register(t0);
@@ -56,6 +48,43 @@ float3 HeightColor(float t)
 }
 
 // -------------------------------------------------------------
+// 트라이플래너 매핑 (S63)
+//  UV 를 XZ 평면에서만 가져오면, 절벽처럼 세로로 선 면에서는
+//  XZ 로 조금만 움직여도 높이가 크게 변한다. 텍스처 한 줄이
+//  그 높이 전체에 걸쳐 칠해지므로 세로로 길게 늘어난 줄무늬가 된다.
+//
+//  대신 월드 좌표를 세 축 방향으로 각각 투영해 세 번 샘플링하고,
+//  법선이 그 축을 얼마나 향하는지로 섞는다.
+//      평지      (normal ≈ ±Y) → 위에서 내려다본 XZ 투영
+//      동서 절벽 (normal ≈ ±X) → 옆에서 본 ZY 투영
+//      남북 절벽 (normal ≈ ±Z) → 앞에서 본 XY 투영
+//  대가는 레이어당 샘플 3배다 (4레이어 → 12회).
+// -------------------------------------------------------------
+float3 TriplanarWeights(float3 normal)
+{
+    // 지수를 올리면 세 투영이 겹치는 구간이 좁아져 뭉개짐이 줄어든다.
+    float3 w = pow(abs(normal), gSurface.z);
+    return w / max(w.x + w.y + w.z, 1e-4f);
+}
+
+float3 SampleLayer(Texture2D layer, float2 uv, float3 worldPos, float3 weights)
+{
+    // 끔 : 기존 방식 (XZ 평면 UV)
+    if (gSurface.x < 0.5f)
+        return layer.Sample(gSampler, uv * gSplat.x).rgb;
+
+    // 켬 : 월드 좌표를 타일 크기로 나눠 세 방향에서 찍는다.
+    //  청크마다 0~1 인 UV 를 쓰지 않으므로 청크 경계에서 무늬가 끊기지도 않는다.
+    float3 p = worldPos / max(gSurface.y, 1e-3f);
+
+    float3 xProjection = layer.Sample(gSampler, p.zy).rgb;
+    float3 yProjection = layer.Sample(gSampler, p.xz).rgb;
+    float3 zProjection = layer.Sample(gSampler, p.xy).rgb;
+
+    return xProjection * weights.x + yProjection * weights.y + zProjection * weights.z;
+}
+
+// -------------------------------------------------------------
 // 텍스처 스플래팅 (S44, S45, S47)
 //  네 장을 "가중치" 로 섞는다. 가중치는 두 가지에서 나온다.
 //   - 높이  : 낮으면 흙, 중간이면 풀, 아주 높으면 눈
@@ -65,14 +94,14 @@ float3 HeightColor(float t)
 //      평지면 normal.y = 1  →  slope = 0
 //      절벽이면 normal.y = 0 →  slope = 1
 // -------------------------------------------------------------
-float3 SplatColor(float2 uv, float height01, float slope)
+float3 SplatColor(float2 uv, float3 worldPos, float3 normal, float height01, float slope)
 {
-    float2 tiledUV = uv * gSplat.x;
+    float3 weights = TriplanarWeights(normal);
 
-    float3 dirt  = gDirt .Sample(gSampler, tiledUV).rgb;
-    float3 grass = gGrass.Sample(gSampler, tiledUV).rgb;
-    float3 rock  = gRock .Sample(gSampler, tiledUV).rgb;
-    float3 snow  = gSnow .Sample(gSampler, tiledUV).rgb;
+    float3 dirt  = SampleLayer(gDirt,  uv, worldPos, weights);
+    float3 grass = SampleLayer(gGrass, uv, worldPos, weights);
+    float3 rock  = SampleLayer(gRock,  uv, worldPos, weights);
+    float3 snow  = SampleLayer(gSnow,  uv, worldPos, weights);
 
     // 높이 기반 가중치. smoothstep 으로 경계를 부드럽게 넘긴다.
     float wDirt  = 1.0f - smoothstep(0.05f, 0.30f, height01);
@@ -118,7 +147,7 @@ float4 main(PSInput input) : SV_TARGET
     else if (useSplat)
     {
         float slope = 1.0f - saturate(normal.y);
-        baseColor = SplatColor(input.uv, height01, slope);
+        baseColor = SplatColor(input.uv, input.worldPos, normal, height01, slope);
     }
     else if (useHeight)
     {
@@ -150,6 +179,10 @@ float4 main(PSInput input) : SV_TARGET
         rgb = lerp(rgb, lineColor, minorLine * minorStrength);
         rgb = lerp(rgb, majorColor, majorLine * majorStrength);
     }
+
+    // ---- 거리 안개 / 대기 원근 (S64) ----
+    //  조명까지 끝낸 "최종 색" 에 섞는다. 공기는 빛이 눈에 오는 길에 끼어들기 때문이다.
+    rgb = ApplyAtmosphere(rgb, input.worldPos, gEyePos.xyz, gFogColor, gFogParams, gLightDir.xyz);
 
     return float4(rgb, 1.0f);
 }

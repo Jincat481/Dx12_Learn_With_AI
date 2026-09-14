@@ -260,6 +260,9 @@ void Graphics::EndFrame()
 {
     if (m_swapChain)
         m_swapChain->Present(1, 0);      // 1 = VSync
+
+    // 안개는 한 프레임짜리 값이다. 하늘이 있는 씬이면 다음 Update 에서 다시 켜진다. (S64)
+    m_fog.color.w = 0.0f;
 }
 
 // -------------------------------------------------------------
@@ -442,7 +445,7 @@ bool Graphics::CreateMeshPipeline()
 {
     // ---- 상수 버퍼 ----
     D3D11_BUFFER_DESC cbDesc = {};
-    cbDesc.ByteWidth      = sizeof(TerrainConstantBuffer);   // 160 바이트 (16의 배수)
+    cbDesc.ByteWidth      = sizeof(TerrainConstantBuffer);   // 288 바이트 (16의 배수)
     cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
     cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -548,6 +551,10 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
         cb->heightRange = drawParams.heightRange;
         cb->splat = drawParams.splat;
         cb->lodSelect = drawParams.lodSelect;
+        cb->eyePosition = XMFLOAT4(m_eyePosition.x, m_eyePosition.y, m_eyePosition.z, 1.0f);
+        cb->surface = drawParams.surface;
+        cb->fogColor = m_fog.color;
+        cb->fogParams = m_fog.params;
 
         // 방향광은 셰이더에서 정규화해 쓰지만, 여기서 미리 맞춰 두면 안전하다.
         XMVECTOR light = XMLoadFloat4(&drawParams.lightDirection);
@@ -735,6 +742,8 @@ void Graphics::DrawTessellatedPatches(const Mesh& mesh, FXMMATRIX world, const T
 
         cb->heightRange = params.heightRange;
         cb->params = params.params;
+        cb->fogColor = m_fog.color;
+        cb->fogParams = m_fog.params;
 
         m_context->Unmap(m_tessConstantBuffer.Get(), 0);
     }

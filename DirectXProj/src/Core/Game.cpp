@@ -85,7 +85,8 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
     dxutil::DebugLog(L"[Game] 초기화 완료");
     dxutil::DebugLog(L"  [카메라] 우클릭 누른 채 : 마우스 회전 | WASD 이동 | Q,E 상하 | 휠 속도조절");
     dxutil::DebugLog(L"           F : 기본 위치로 리셋");
-    dxutil::DebugLog(L"  [터레인] Tab 표시 모드 순환 | N 새 지형 | P 펄린<->값 노이즈");
+    dxutil::DebugLog(L"  [터레인] Tab 표시 모드 순환 | N 새 지형 | P 펄린<->값 노이즈 | T 트라이플래너 | G 걷기/비행");
+    dxutil::DebugLog(L"           O 안개 | B 백그라운드 청크 생성 (스텝 10)");
     dxutil::DebugLog(L"  [공통] ESC 메뉴로 | H Hierarchy | I Inspector");
     dxutil::DebugLog(L"  좌클릭 선택 | 좌드래그 이동 | 우클릭 해제");
     dxutil::DebugLog(L"  H: Hierarchy 켜기/끄기 | I: Inspector 켜기/끄기");
@@ -203,6 +204,14 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         GameObject* skyObject = scene->CreateGameObject("Sky");
         sky = skyObject->AddComponent<SkyRenderer>();
         sky->SetCloudsEnabled(mode != ChunkedMode::Sky);
+
+        // 대기 원근 (S64)
+        //  유한 지형 : 멀리까지 옅게 깔아 거리감만 준다.
+        //  무한 지형 : 스트리밍 반경 안에서 반드시 완전히 덮어, 아직 없는 청크를 가린다.
+        if (mode == ChunkedMode::Infinite)
+            sky->SetFogRange(60.0f, terrain->GetStreamingRadius() - 32.0f, 0.0028f);
+        else
+            sky->SetFogRange(150.0f, 950.0f, 0.0016f);
     }
 
     terrain->SetCullingEnabled(true);
@@ -267,7 +276,8 @@ void Game::BuildTessellationScene()
     camera->SetAngles(0.0f, -14.0f);
 
     GameObject* skyObject = scene->CreateGameObject("Sky");
-    skyObject->AddComponent<SkyRenderer>();
+    SkyRenderer* sky = skyObject->AddComponent<SkyRenderer>();
+    sky->SetFogRange(150.0f, 950.0f, 0.0016f);
 
     GameObject* terrainObject = scene->CreateGameObject("Terrain");
     TessellatedTerrainRenderer* terrain = terrainObject->AddComponent<TessellatedTerrainRenderer>();
@@ -592,6 +602,18 @@ void Game::UpdateControlsPanel()
         }
     }
 
+    SkyRenderer* sky = nullptr;
+    Camera* camera = nullptr;
+    for (const auto& object : scene->GetGameObjects())
+    {
+        if (!object || object->IsPendingDestroy())
+            continue;
+        if (!sky)    sky = object->GetComponent<SkyRenderer>();
+        if (!camera) camera = object->GetComponent<Camera>();
+    }
+
+    auto onOff = [](bool on) { return on ? L"켬" : L"끔"; };
+
     std::vector<ControlsPanel::Line> lines;
 
     if (tess)
@@ -604,7 +626,7 @@ void Game::UpdateControlsPanel()
         _snwprintf_s(patches, _countof(patches), _TRUNCATE, L"%d개", tess->GetPatchCount());
 
         m_controls.SetTitle(L"조작   (Tab 으로 와이어프레임)");
-        lines.push_back({ L"Tab", L"와이어프레임", tess->IsWireframe() ? L"켬" : L"끔", true });
+        lines.push_back({ L"Tab", L"와이어프레임", onOff(tess->IsWireframe()), true });
         lines.push_back({ L"+ / -", L"최대 분할", factor, true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
         lines.push_back({ L"", L"보내는 패치", patches, true });
@@ -613,54 +635,45 @@ void Game::UpdateControlsPanel()
     {
         const terrain::TerrainQuadTree::Stats& stats = chunked->GetStats();
 
-        wchar_t visible[64];
-        _snwprintf_s(visible, _countof(visible), _TRUNCATE, L"%d / %d 청크",
-                     stats.visibleChunks, stats.totalChunks);
-
-        wchar_t triangles[64];
-        _snwprintf_s(triangles, _countof(triangles), _TRUNCATE, L"%d 삼각형",
-                     chunked->GetDrawnTriangles());
+        wchar_t drawing[96];
+        _snwprintf_s(drawing, _countof(drawing), _TRUNCATE, L"%d / %d 청크 · %d 삼각형",
+                     stats.visibleChunks, stats.totalChunks, chunked->GetDrawnTriangles());
 
         m_controls.SetTitle(L"조작   (Tab 으로 보기 전환)");
         lines.push_back({ L"Tab", L"표시 모드", chunked->GetDisplayModeName(), true });
-        lines.push_back({ L"C", L"절두체 컬링", chunked->IsCullingEnabled() ? L"켬" : L"끔", true });
-        lines.push_back({ L"L", L"거리 LOD", chunked->IsLodEnabled() ? L"켬" : L"끔", true });
-        lines.push_back({ L"K", L"스커트", chunked->IsSkirtEnabled() ? L"켬" : L"끔", true });
-        lines.push_back({ L"M", L"지오모핑", chunked->IsMorphEnabled() ? L"켬" : L"끔", true });
+        lines.push_back({ L"T", L"트라이플래너", onOff(chunked->IsTriplanarEnabled()), true });
+        lines.push_back({ L"C", L"절두체 컬링", onOff(chunked->IsCullingEnabled()), true });
+        lines.push_back({ L"L", L"거리 LOD", onOff(chunked->IsLodEnabled()), true });
+        lines.push_back({ L"K", L"스커트", onOff(chunked->IsSkirtEnabled()), true });
+        lines.push_back({ L"M", L"지오모핑", onOff(chunked->IsMorphEnabled()), true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
 
         if (chunked->IsInfiniteEnabled())
         {
-            wchar_t rebuilt[48];
-            _snwprintf_s(rebuilt, _countof(rebuilt), _TRUNCATE, L"이번 프레임 %d개", chunked->GetRebuiltThisFrame());
+            wchar_t worker[64];
+            if (chunked->IsAsyncBuildEnabled())
+                _snwprintf_s(worker, _countof(worker), _TRUNCATE, L"켬 · 스레드 %d개", chunked->GetWorkerThreadCount());
+            else
+                _snwprintf_s(worker, _countof(worker), _TRUNCATE, L"끔 · 메인 스레드");
+
+            wchar_t cost[96];
+            _snwprintf_s(cost, _countof(cost), _TRUNCATE, L"%.2f ms · 대기 %zu개",
+                         chunked->GetMainThreadBuildMs(), chunked->GetOutstandingBuildCount());
+
             lines.push_back({ L"J", L"무한 지형", L"켬", true });
-            lines.push_back({ L"", L"청크 재생성", rebuilt, true });
+            lines.push_back({ L"B", L"백그라운드 생성", worker, true });
+            lines.push_back({ L"", L"메인 스레드 비용", cost, true });
         }
 
-        // 하늘이 있는 씬이면 구름 조작도 보여 준다.
-        for (const auto& object : scene->GetGameObjects())
-        {
-            if (!object || object->IsPendingDestroy())
-                continue;
-
-            if (SkyRenderer* sky = object->GetComponent<SkyRenderer>())
-            {
-                wchar_t coverage[48];
-                _snwprintf_s(coverage, _countof(coverage), _TRUNCATE, L"%.0f%%", sky->GetCloudCoverage() * 100.0f);
-
-                lines.push_back({ L"V", L"구름", sky->AreCloudsEnabled() ? L"켬" : L"끔", true });
-                lines.push_back({ L"+ / -", L"구름 양", coverage, true });
-                break;
-            }
-        }
-
-        lines.push_back({ L"", L"그리는 중", visible, true });
-        lines.push_back({ L"", L"", triangles, true });
+        lines.push_back({ L"", L"그리는 중", drawing, true });
     }
     else if (terrain)
     {
         m_controls.SetTitle(L"조작   (Tab 으로 보기 전환)");
         lines.push_back({ L"Tab", L"표시 모드", terrain->GetDisplayModeName(), true });
+
+        if (terrain->GetDisplayMode() == TerrainRenderer::DisplayMode::Splatting)
+            lines.push_back({ L"T", L"트라이플래너", onOff(terrain->IsTriplanarEnabled()), true });
 
         // 이미지 높이맵에서는 seed 를 바꿔도 화면이 그대로다.
         // 그래서 N 은 "다음 높이맵" 으로, P(노이즈 종류)는 아예 숨긴다.
@@ -683,9 +696,31 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"F1 / F2", L"자식 추가 / 삭제", L"", false });
     }
 
-    lines.push_back({ L"우클릭+이동", L"시점 회전", L"", false });
-    lines.push_back({ L"우클릭+WASD", L"카메라 이동", L"", false });
-    lines.push_back({ L"F", L"카메라 리셋", L"", false });
+    // 하늘이 있는 씬 : 구름과 안개
+    if (sky)
+    {
+        // 테셀레이션 씬은 + / - 를 분할 계수에 쓰므로 구름 조작은 보여 주지 않는다.
+        if (!tess)
+        {
+            wchar_t coverage[48];
+            _snwprintf_s(coverage, _countof(coverage), _TRUNCATE, L"%.0f%%", sky->GetCloudCoverage() * 100.0f);
+
+            lines.push_back({ L"V", L"구름", onOff(sky->AreCloudsEnabled()), true });
+            lines.push_back({ L"+ / -", L"구름 양", coverage, true });
+        }
+        lines.push_back({ L"O", L"안개", onOff(sky->IsFogEnabled()), true });
+    }
+
+    // 카메라가 있는 씬 : 이동 방식
+    if (camera)
+    {
+        lines.push_back({ L"G", L"이동 방식", camera->IsWalking() ? L"걷기" : L"비행", true });
+        if (camera->IsWalking())
+            lines.push_back({ L"우클릭+Space", L"점프", L"", false });
+        lines.push_back({ L"우클릭+WASD", L"카메라 이동 · 회전", L"", false });
+        lines.push_back({ L"F", L"카메라 리셋", L"", false });
+    }
+
     lines.push_back({ L"H / I", L"패널 켜기/끄기", L"", false });
     lines.push_back({ L"F5 / F9", L"씬 저장 / 불러오기", L"", false });
     lines.push_back({ L"ESC", L"메뉴로 돌아가기", L"", false });
@@ -948,6 +983,16 @@ void Game::HandleFrameEndCommands()
                 chunked->ToggleInfinite();
                 dxutil::DebugLog(L"[Terrain] 무한 지형 %s", chunked->IsInfiniteEnabled() ? L"켬" : L"끔");
             }
+            if (input.GetKeyDown('T'))
+            {
+                chunked->ToggleTriplanar();
+                dxutil::DebugLog(L"[Terrain] 트라이플래너 %s", chunked->IsTriplanarEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('B'))
+            {
+                chunked->ToggleAsyncBuild();
+                dxutil::DebugLog(L"[Terrain] 백그라운드 생성 %s", chunked->IsAsyncBuildEnabled() ? L"켬" : L"끔");
+            }
 
             continue;   // 청크 지형은 여기까지
         }
@@ -982,6 +1027,11 @@ void Game::HandleFrameEndCommands()
                 sky->SetCloudCoverage((std::min)(0.95f, sky->GetCloudCoverage() + 0.08f));
             if (input.GetKeyDown(VK_OEM_MINUS) || input.GetKeyDown(VK_SUBTRACT))
                 sky->SetCloudCoverage((std::max)(0.05f, sky->GetCloudCoverage() - 0.08f));
+            if (input.GetKeyDown('O'))
+            {
+                sky->ToggleFog();
+                dxutil::DebugLog(L"[Sky] 안개 %s", sky->IsFogEnabled() ? L"켬" : L"끔");
+            }
 
             continue;
         }
@@ -1002,6 +1052,12 @@ void Game::HandleFrameEndCommands()
             terrain->ToggleNoiseType();
             dxutil::DebugLog(L"[Terrain] 노이즈 : %s",
                              terrain->GetNoiseType() == terrain::NoiseType::Perlin ? L"펄린(그래디언트)" : L"값(value)");
+        }
+
+        if (input.GetKeyDown('T'))          // 트라이플래너
+        {
+            terrain->ToggleTriplanar();
+            dxutil::DebugLog(L"[Terrain] 트라이플래너 %s", terrain->IsTriplanarEnabled() ? L"켬" : L"끔");
         }
 
         if (input.GetKeyDown('N'))          // 새 지형 생성

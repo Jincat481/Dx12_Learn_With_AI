@@ -23,6 +23,27 @@ namespace
 #endif
         return flags;
     }
+
+#if SHADER_CACHE_ENABLED
+    // 폴더 안 .hlsli 중 가장 최근 수정 시각.
+    //  include 파일만 고친 경우 .hlsl 의 시각은 그대로라 캐시가 낡은 줄 모른다.
+    fs::file_time_type NewestIncludeTime(const fs::path& folder)
+    {
+        fs::file_time_type newest = (fs::file_time_type::min)();
+        std::error_code ec;
+
+        for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+        {
+            if (it->path().extension() != L".hlsli")
+                continue;
+
+            const fs::file_time_type time = it->last_write_time(ec);
+            if (!ec && time > newest)
+                newest = time;
+        }
+        return newest;
+    }
+#endif
 }
 
 std::wstring Shader::MakeCachePath(const std::wstring& hlslPath)
@@ -89,7 +110,7 @@ void Shader::SaveBlobToCache(const std::wstring& hlslPath, ID3DBlob* blob) const
 
 // -------------------------------------------------------------
 // 확장 과제 : .cso 캐시 로드 경로
-//  .cso 가 존재하고 HLSL 보다 최신일 때만 사용한다.
+//  .cso 가 존재하고 HLSL 과 같은 폴더의 .hlsli 보다 모두 최신일 때만 사용한다.
 // -------------------------------------------------------------
 bool Shader::BuildFromCache(CompiledSet& out)
 {
@@ -117,6 +138,11 @@ bool Shader::BuildFromCache(CompiledSet& out)
 
     if (fs::last_write_time(vsCache, ec) < vsSrcTime) return false;
     if (fs::last_write_time(psCache, ec) < psSrcTime) return false;
+
+    // include(.hlsli) 만 고친 경우도 낡은 캐시다.
+    const fs::file_time_type includeTime = NewestIncludeTime(fs::path(m_desc.vsPath).parent_path());
+    if (fs::last_write_time(vsCache, ec) < includeTime) return false;
+    if (fs::last_write_time(psCache, ec) < includeTime) return false;
 
     ComPtr<ID3DBlob> vsBlob, psBlob;
     if (FAILED(::D3DReadFileToBlob(vsCache.c_str(), vsBlob.GetAddressOf()))) return false;
