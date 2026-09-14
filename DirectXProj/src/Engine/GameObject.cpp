@@ -256,6 +256,23 @@ void GameObject::Render()
     }
 }
 
+void GameObject::RenderTransparent()
+{
+    if (!m_active || m_pendingDestroy)
+        return;
+
+    for (auto& bucket : m_components)
+    {
+        for (auto& component : bucket.second)
+        {
+            if (!component || component->IsPendingDestroy() || !component->IsEnabled())
+                continue;
+
+            component->RenderTransparent();
+        }
+    }
+}
+
 void GameObject::ProcessPendingChanges(Graphics* graphics)
 {
     // 1) 삭제 예약분을 실제로 제거한다.

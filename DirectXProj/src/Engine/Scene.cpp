@@ -109,6 +109,12 @@ void Scene::Update()
 
 void Scene::Render()
 {
+    RenderOpaque();
+    RenderTransparent();
+}
+
+void Scene::RenderOpaque()
+{
     m_iterating = true;
 
     for (size_t i = 0; i < m_objects.size(); ++i)
@@ -116,6 +122,22 @@ void Scene::Render()
         GameObject* object = m_objects[i].get();
         if (object)
             object->Render();
+    }
+
+    m_iterating = false;
+}
+
+// 불투명한 것이 모두 그려진 뒤에 한 번 더 돈다.
+//  물은 화면에 이미 그려진 바닥과 깊이를 읽어야 하므로 반드시 이 순서여야 한다.
+void Scene::RenderTransparent()
+{
+    m_iterating = true;
+
+    for (size_t i = 0; i < m_objects.size(); ++i)
+    {
+        GameObject* object = m_objects[i].get();
+        if (object)
+            object->RenderTransparent();
     }
 
     m_iterating = false;

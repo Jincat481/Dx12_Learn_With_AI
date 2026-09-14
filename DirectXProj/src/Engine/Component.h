@@ -35,6 +35,7 @@ public:
     virtual void Start() {}
     virtual void Update() {}
     virtual void Render() {}
+    virtual void RenderTransparent() {}   // 불투명이 모두 그려진 뒤. 물처럼 "뒤에 그려진 것" 을 읽는 것 (S77)
     virtual void OnDestroy() {}
 
     // ---- 직렬화 ----

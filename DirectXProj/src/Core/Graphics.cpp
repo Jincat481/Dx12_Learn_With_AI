@@ -30,6 +30,8 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
     if (!CreateMeshPipeline())           return false;
     if (!CreateSkyPipeline())            return false;
     if (!CreateTessPipeline())           return false;
+    if (!CreatePassTargets())            return false;
+    if (!CreateWaterPipeline())          return false;
 
     TextureManager::Get().Initialize(m_device.Get());
 
@@ -71,6 +73,17 @@ void Graphics::Shutdown()
     m_tessConstantBuffer.Reset();
     m_skyShader.reset();
     m_skyConstantBuffer.Reset();
+    m_waterShader.reset();
+    m_waterConstantBuffer.Reset();
+    m_sceneDepthSRV.Reset();
+    m_sceneDepthCopy.Reset();
+    m_sceneColorSRV.Reset();
+    m_sceneColorCopy.Reset();
+    m_reflectionDSV.Reset();
+    m_reflectionDepth.Reset();
+    m_reflectionSRV.Reset();
+    m_reflectionRTV.Reset();
+    m_reflectionTexture.Reset();
     m_terrainShader.reset();
     m_rasterWireframeState.Reset();
     m_rasterSolidState.Reset();
@@ -254,6 +267,8 @@ void Graphics::BeginFrame()
     const float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xFFFFFFFF);
     m_context->RSSetState(m_rasterizerState.Get());
+
+    m_sceneCaptured = false;
 }
 
 void Graphics::EndFrame()
@@ -384,7 +399,10 @@ bool Graphics::CreateDepthBuffer()
     desc.Height           = static_cast<UINT>(m_height);
     desc.MipLevels        = 1;
     desc.ArraySize        = 1;
-    desc.Format           = DXGI_FORMAT_D24_UNORM_S8_UINT;   // 깊이 24비트 + 스텐실 8비트
+    // 깊이 24비트 + 스텐실 8비트.
+    //  D24_UNORM_S8_UINT 로 만들면 깊이로만 쓸 수 있다. 물이 깊이를 읽으려면(S77)
+    //  같은 비트 배치의 "형식 없는(typeless)" 텍스처로 만들고, 쓸 때 뷰에서 형식을 정한다.
+    desc.Format           = DXGI_FORMAT_R24G8_TYPELESS;
     desc.SampleDesc.Count = 1;
     desc.Usage            = D3D11_USAGE_DEFAULT;
     desc.BindFlags        = D3D11_BIND_DEPTH_STENCIL;
@@ -394,7 +412,7 @@ bool Graphics::CreateDepthBuffer()
         return false;
 
     D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-    dsvDesc.Format        = desc.Format;
+    dsvDesc.Format        = DXGI_FORMAT_D24_UNORM_S8_UINT;   // 깊이 버퍼로 볼 때의 형식
     dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 
     if (DX_FAILED(m_device->CreateDepthStencilView(m_depthStencilTexture.Get(), &dsvDesc,
@@ -580,6 +598,7 @@ void Graphics::DrawMesh(const Mesh& mesh, FXMMATRIX world, const MeshDrawParams&
         cb->eyePosition = XMFLOAT4(m_eyePosition.x, m_eyePosition.y, m_eyePosition.z, 1.0f);
         cb->surface = drawParams.surface;
         cb->brush = drawParams.brush;
+        cb->clipPlane = m_clipPlane;
         cb->fogColor = m_fog.color;
         cb->fogParams = m_fog.params;
 
@@ -805,4 +824,237 @@ void Graphics::DrawTessellatedPatches(const Mesh& mesh, FXMMATRIX world, const T
     // 다음 그리기가 삼각형 목록으로 돌아가도록 테셀레이션 단계를 해제한다.
     m_context->HSSetShader(nullptr, nullptr, 0);
     m_context->DSSetShader(nullptr, nullptr, 0);
+}
+
+// =============================================================
+// 렌더 패스용 텍스처 (S76, S77)
+// =============================================================
+bool Graphics::CreatePassTargets()
+{
+    // ---- 반사 : 색 + 깊이 ----
+    D3D11_TEXTURE2D_DESC color = {};
+    color.Width            = static_cast<UINT>(m_width);
+    color.Height           = static_cast<UINT>(m_height);
+    color.MipLevels        = 1;
+    color.ArraySize        = 1;
+    color.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    color.SampleDesc.Count = 1;
+    color.Usage            = D3D11_USAGE_DEFAULT;
+    color.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+    if (DX_FAILED(m_device->CreateTexture2D(&color, nullptr, m_reflectionTexture.GetAddressOf()), L"CreateTexture2D(reflection)") ||
+        DX_FAILED(m_device->CreateRenderTargetView(m_reflectionTexture.Get(), nullptr, m_reflectionRTV.GetAddressOf()), L"CreateRenderTargetView(reflection)") ||
+        DX_FAILED(m_device->CreateShaderResourceView(m_reflectionTexture.Get(), nullptr, m_reflectionSRV.GetAddressOf()), L"CreateShaderResourceView(reflection)"))
+        return false;
+
+    D3D11_TEXTURE2D_DESC depth = color;
+    depth.Format    = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+
+    if (DX_FAILED(m_device->CreateTexture2D(&depth, nullptr, m_reflectionDepth.GetAddressOf()), L"CreateTexture2D(reflection depth)") ||
+        DX_FAILED(m_device->CreateDepthStencilView(m_reflectionDepth.Get(), nullptr, m_reflectionDSV.GetAddressOf()), L"CreateDepthStencilView(reflection)"))
+        return false;
+
+    // ---- 화면 색 복사본 : 백버퍼와 같은 형식이어야 CopyResource 가 된다 ----
+    ComPtr<ID3D11Resource> backBufferResource;
+    m_renderTargetView->GetResource(backBufferResource.GetAddressOf());
+    ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(backBufferResource.As(&backBuffer)))
+        return false;
+
+    D3D11_TEXTURE2D_DESC sceneColor = {};
+    backBuffer->GetDesc(&sceneColor);
+    sceneColor.BindFlags      = D3D11_BIND_SHADER_RESOURCE;
+    sceneColor.MiscFlags      = 0;
+    sceneColor.CPUAccessFlags = 0;
+    sceneColor.Usage          = D3D11_USAGE_DEFAULT;
+
+    if (DX_FAILED(m_device->CreateTexture2D(&sceneColor, nullptr, m_sceneColorCopy.GetAddressOf()), L"CreateTexture2D(scene color copy)") ||
+        DX_FAILED(m_device->CreateShaderResourceView(m_sceneColorCopy.Get(), nullptr, m_sceneColorSRV.GetAddressOf()), L"CreateShaderResourceView(scene color)"))
+        return false;
+
+    // ---- 깊이 복사본 : R24G8_TYPELESS 를 "깊이 24비트를 0~1 실수로" 읽는 뷰 ----
+    D3D11_TEXTURE2D_DESC sceneDepth = {};
+    m_depthStencilTexture->GetDesc(&sceneDepth);
+    sceneDepth.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC depthView = {};
+    depthView.Format              = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    depthView.ViewDimension       = D3D11_SRV_DIMENSION_TEXTURE2D;
+    depthView.Texture2D.MipLevels = 1;
+
+    if (DX_FAILED(m_device->CreateTexture2D(&sceneDepth, nullptr, m_sceneDepthCopy.GetAddressOf()), L"CreateTexture2D(scene depth copy)") ||
+        DX_FAILED(m_device->CreateShaderResourceView(m_sceneDepthCopy.Get(), &depthView, m_sceneDepthSRV.GetAddressOf()), L"CreateShaderResourceView(scene depth)"))
+        return false;
+
+    return true;
+}
+
+// -------------------------------------------------------------
+// 반사 패스 (S76)
+//  수면 y = L 에 대해 세상을 뒤집어 그리면 수면에 비친 모습이 된다.
+//
+//      반사 뷰 = Reflect(수면) × View      (월드를 먼저 뒤집고 원래 카메라로 본다)
+//
+//  같은 카메라와 투영으로 그리므로, 결과 텍스처는 물 픽셀과 같은 화면 좌표에서 그대로 읽을 수 있다.
+//  뒤집으면 삼각형 감김 방향이 반대가 되지만 지형과 하늘은 컬링을 끄고 그리므로 문제없다.
+// -------------------------------------------------------------
+bool Graphics::BeginReflectionPass(float waterLevel)
+{
+    if (!m_context || !m_reflectionRTV || m_renderPass != RenderPass::Main)
+        return false;
+
+    m_savedView3D = m_view3D;
+    m_savedEyePosition = m_eyePosition;
+
+    const XMMATRIX reflect = XMMatrixReflect(XMVectorSet(0.0f, 1.0f, 0.0f, -waterLevel));
+    XMStoreFloat4x4(&m_view3D, reflect * XMLoadFloat4x4(&m_savedView3D));
+    m_eyePosition.y = 2.0f * waterLevel - m_eyePosition.y;
+
+    // 수면 조금 아래까지는 남긴다. 딱 맞춰 자르면 물가에 틈이 보인다.
+    m_clipPlane = XMFLOAT4(0.0f, 1.0f, 0.0f, -(waterLevel - 0.5f));
+    m_renderPass = RenderPass::Reflection;
+
+    m_context->OMSetRenderTargets(1, m_reflectionRTV.GetAddressOf(), m_reflectionDSV.Get());
+    m_context->ClearRenderTargetView(m_reflectionRTV.Get(), m_clearColor);
+    m_context->ClearDepthStencilView(m_reflectionDSV.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    return true;
+}
+
+void Graphics::EndReflectionPass()
+{
+    if (m_renderPass != RenderPass::Reflection)
+        return;
+
+    m_view3D = m_savedView3D;
+    m_eyePosition = m_savedEyePosition;
+    m_clipPlane = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+    m_renderPass = RenderPass::Main;
+
+    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+}
+
+// -------------------------------------------------------------
+// 불투명 결과 복사 (S77)
+//  깊이 버퍼는 지금 출력(DSV)으로 붙어 있어 셰이더가 읽을 수 없다. 복사본을 읽는다.
+//  한 프레임에 물이 여러 개여도 복사는 한 번만 한다.
+// -------------------------------------------------------------
+void Graphics::CaptureOpaqueScene()
+{
+    if (m_sceneCaptured || !m_sceneColorCopy || !m_sceneDepthCopy)
+        return;
+
+    ComPtr<ID3D11Resource> backBuffer;
+    m_renderTargetView->GetResource(backBuffer.GetAddressOf());
+
+    // 출력으로 묶여 있는 깊이를 복사 원본으로 쓰기 전에 잠시 떼어 둔다.
+    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), nullptr);
+    m_context->CopyResource(m_sceneColorCopy.Get(), backBuffer.Get());
+    m_context->CopyResource(m_sceneDepthCopy.Get(), m_depthStencilTexture.Get());
+    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+
+    m_sceneCaptured = true;
+}
+
+// =============================================================
+// 물 파이프라인 (S76~S78)
+// =============================================================
+bool Graphics::CreateWaterPipeline()
+{
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = sizeof(WaterConstantBuffer);
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (DX_FAILED(m_device->CreateBuffer(&cbDesc, nullptr, m_waterConstantBuffer.GetAddressOf()),
+                  L"CreateBuffer(water constant)"))
+        return false;
+
+    Shader::Desc shaderDesc;
+    shaderDesc.vsPath = Paths::Resolve(L"Shaders/WaterVS.hlsl");
+    shaderDesc.psPath = Paths::Resolve(L"Shaders/WaterPS.hlsl");
+    shaderDesc.layout = TerrainVertex::kLayout;
+    shaderDesc.layoutCount = TerrainVertex::kLayoutCount;
+    shaderDesc.cacheCompiled = (SHADER_CACHE_ENABLED != 0);
+    shaderDesc.useCache      = (SHADER_CACHE_ENABLED != 0);
+
+    m_waterShader = std::make_shared<Shader>();
+    if (!m_waterShader->Load(m_device.Get(), shaderDesc))
+    {
+        dxutil::DebugLog(L"[Graphics] 물 셰이더 로드 실패 : %s", m_waterShader->GetLastError().c_str());
+        return false;
+    }
+
+#if HOT_RELOAD_ENABLED
+    ShaderManager::Get().Register("Water", m_waterShader);
+#endif
+
+    return true;
+}
+
+void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParams& params)
+{
+    if (!m_context || !mesh.IsValid() || !m_waterShader || !m_waterShader->IsValid())
+        return;
+
+    CaptureOpaqueScene();
+
+    const XMMATRIX view = XMLoadFloat4x4(&m_view3D);
+    const XMMATRIX projection = XMLoadFloat4x4(&m_projection3D);
+    const XMMATRIX wvp = world * view * projection;
+
+    // 원근 투영 행렬에서 near / far 를 되찾는다. (LH : _33 = f/(f-n), _43 = -n·f/(f-n))
+    const float m33 = m_projection3D._33;
+    const float m43 = m_projection3D._43;
+    const float nearZ = -m43 / m33;
+    const float farZ = m43 / (1.0f - m33);
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(m_context->Map(m_waterConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        WaterConstantBuffer* cb = static_cast<WaterConstantBuffer*>(mapped.pData);
+        XMStoreFloat4x4(&cb->wvp, XMMatrixTranspose(wvp));
+        XMStoreFloat4x4(&cb->world, XMMatrixTranspose(world));
+        cb->eyePosition = XMFLOAT4(m_eyePosition.x, m_eyePosition.y, m_eyePosition.z, params.time);
+        cb->shallowColor = params.shallowColor;
+        cb->deepColor = params.deepColor;
+        cb->wave = params.wave;
+
+        XMVECTOR light = XMVector3Normalize(XMVectorSetW(XMLoadFloat4(&params.lightDirection), 0.0f));
+        XMStoreFloat4(&cb->lightDirection, light);
+
+        cb->projection = XMFLOAT4(nearZ, farZ, 1.0f / static_cast<float>(m_width), 1.0f / static_cast<float>(m_height));
+        cb->fogColor = m_fog.color;
+        cb->fogParams = m_fog.params;
+        cb->flags = XMFLOAT4(params.reflection ? 1.0f : 0.0f, params.refraction ? 1.0f : 0.0f, params.foam ? 1.0f : 0.0f, 0.0f);
+        cb->padding = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+
+        m_context->Unmap(m_waterConstantBuffer.Get(), 0);
+    }
+
+    m_context->OMSetDepthStencilState(m_depthEnabledState.Get(), 0);
+    m_context->RSSetState(m_rasterSolidState.Get());
+
+    const UINT stride = mesh.GetStride();
+    const UINT offset = 0;
+    ID3D11Buffer* vertexBuffer = mesh.GetVertexBuffer();
+
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    m_context->IASetIndexBuffer(mesh.GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+    m_waterShader->Bind(m_context.Get());
+    m_context->VSSetConstantBuffers(0, 1, m_waterConstantBuffer.GetAddressOf());
+    m_context->PSSetConstantBuffers(0, 1, m_waterConstantBuffer.GetAddressOf());
+
+    ID3D11ShaderResourceView* views[3] = { m_reflectionSRV.Get(), m_sceneColorSRV.Get(), m_sceneDepthSRV.Get() };
+    m_context->PSSetShaderResources(0, 3, views);
+    m_context->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());   // CLAMP : 화면 밖을 반복해 읽으면 안 된다
+
+    m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
+
+    // 다음 프레임에 이 텍스처들로 다시 그리거나 복사해 넣으려면 입력으로 묶여 있으면 안 된다.
+    ID3D11ShaderResourceView* nullViews[3] = { nullptr, nullptr, nullptr };
+    m_context->PSSetShaderResources(0, 3, nullViews);
 }

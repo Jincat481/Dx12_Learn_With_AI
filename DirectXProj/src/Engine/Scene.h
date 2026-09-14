@@ -36,7 +36,9 @@ public:
     // ---- 생명주기 ----
     void Initialize(Graphics* graphics);      // Graphics 준비 후 Component::Initialize 호출
     void Update();
-    void Render();
+    void Render();                 // 불투명 → 반투명
+    void RenderOpaque();           // 반사 패스처럼 불투명만 다시 그릴 때 (S76)
+    void RenderTransparent();
     void ProcessPendingChanges();             // 프레임 끝 : 추가/삭제 일괄 반영
     void Clear();
 

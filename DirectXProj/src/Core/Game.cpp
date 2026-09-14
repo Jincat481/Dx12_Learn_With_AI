@@ -17,6 +17,7 @@
 #include "Terrain/TerrainRenderer.h"
 #include "Terrain/ChunkedTerrainRenderer.h"
 #include "Engine/SkyRenderer.h"
+#include "Engine/WaterRenderer.h"
 #include "Terrain/TessellatedTerrainRenderer.h"
 #include "Terrain/TerrainBrush.h"
 #include "Terrain/TerrainErosion.h"
@@ -115,6 +116,7 @@ void Game::RegisterComponentTypes()
     factory.Register<TessellatedTerrainRenderer>("TessellatedTerrainRenderer");
     factory.Register<TerrainBrush>("TerrainBrush");
     factory.Register<TerrainErosion>("TerrainErosion");
+    factory.Register<WaterRenderer>("WaterRenderer");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -177,7 +179,7 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
     GameObject* cameraObject = scene->CreateGameObject("MainCamera");
     Camera* camera = cameraObject->AddComponent<Camera>();
 
-    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite || mode == ChunkedMode::Biomes)
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite || mode == ChunkedMode::Biomes || mode == ChunkedMode::Water)
     {
         // 지평선과 하늘이 함께 보이도록 낮게 서서 앞을 본다.
         camera->SetPosition(XMFLOAT3(0.0f, 70.0f, -260.0f));
@@ -210,12 +212,21 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         height.biomeFrequency = 0.0022f;
     }
 
+    if (mode == ChunkedMode::Water)
+    {
+        // 사막과 낮은 초원이 수면 아래로 잠겨 호수와 바다가 된다.
+        height.amplitude = 85.0f;
+        height.frequency = 0.005f;
+        height.biomes = true;
+        height.biomeFrequency = 0.0022f;
+    }
+
     terrain->SetHeightParams(height);
 
     // 하늘은 지형보다 먼저 그려야 하므로 씬에 먼저 넣는다.
     //  (Scene 은 소유 순서대로 Render 한다)
     SkyRenderer* sky = nullptr;
-    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite || mode == ChunkedMode::Biomes)
+    if (mode == ChunkedMode::Sky || mode == ChunkedMode::Clouds || mode == ChunkedMode::Infinite || mode == ChunkedMode::Biomes || mode == ChunkedMode::Water)
     {
         GameObject* skyObject = scene->CreateGameObject("Sky");
         sky = skyObject->AddComponent<SkyRenderer>();
@@ -228,6 +239,8 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
             sky->SetFogRange(60.0f, terrain->GetStreamingRadius() - 32.0f, 0.0028f);
         else if (mode == ChunkedMode::Biomes)
             sky->SetFogRange(250.0f, terrain->GetStreamingRadius() - 32.0f, 0.0007f);
+        else if (mode == ChunkedMode::Water)
+            sky->SetFogRange(150.0f, terrain->GetStreamingRadius() - 32.0f, 0.0012f);
         else
             sky->SetFogRange(150.0f, 950.0f, 0.0016f);
     }
@@ -287,6 +300,25 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         camera->SetPosition(XMFLOAT3(0.0f, 280.0f, -420.0f));
         camera->SetAngles(0.0f, -24.0f);
         break;
+
+    case ChunkedMode::Water:
+    {
+        // 눈에 띄는 작업 : 물 표면 (S76~S78)
+        terrain->SetLodEnabled(true);
+        terrain->SetSkirtEnabled(true);
+        terrain->SetMorphEnabled(true);
+        terrain->SetInfiniteEnabled(true);
+        terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
+
+        // 수면 가까이 낮게 서서 멀리 본다. 비스듬히 볼수록 반사가 강해진다(프레넬).
+        camera->SetPosition(XMFLOAT3(0.0f, 30.0f, -140.0f));
+        camera->SetAngles(20.0f, -3.0f);
+
+        GameObject* waterObject = scene->CreateGameObject("Water");
+        WaterRenderer* water = waterObject->AddComponent<WaterRenderer>();
+        water->SetWaterLevel(6.0f);
+        break;
+    }
     }
 }
 
@@ -406,6 +438,39 @@ void Game::BuildSpriteDemoScene()
     grandChild->SetParent(child, /*worldPositionStays*/ false);
 }
 
+// -------------------------------------------------------------
+// 씬 그리기 (S76, S77)
+//  물이 있으면 수면에 비칠 세상을 먼저 한 번 더 그린다.
+//  그다음 불투명한 것을 모두 그리고, 마지막에 물처럼 그 결과를 읽는 것을 그린다.
+// -------------------------------------------------------------
+void Game::RenderScenePasses()
+{
+    Scene* scene = SceneManager::Get().GetActiveScene();
+    if (!scene || !m_graphics)
+        return;
+
+    WaterRenderer* water = nullptr;
+    for (const auto& object : scene->GetGameObjects())
+    {
+        if (!object || object->IsPendingDestroy() || !object->IsActive())
+            continue;
+
+        water = object->GetComponent<WaterRenderer>();
+        if (water && water->IsEnabled())
+            break;
+        water = nullptr;
+    }
+
+    if (water && water->IsReflectionEnabled() && m_graphics->BeginReflectionPass(water->GetWaterLevel()))
+    {
+        scene->RenderOpaque();
+        m_graphics->EndReflectionPass();
+    }
+
+    scene->RenderOpaque();
+    scene->RenderTransparent();
+}
+
 int Game::Run()
 {
     if (!m_running)
@@ -432,7 +497,7 @@ int Game::Run()
         sceneManager.Update();                 // 3. 씬 Update (메뉴도 여기서 돈다)
 
         m_graphics->BeginFrame();              // 4. 화면 Clear
-        sceneManager.Render();                 // 5. 씬 Render
+        RenderScenePasses();                   // 5. 씬 Render (반사 패스 → 불투명 → 반투명)
         DrawOverlayUI();                       //    메뉴 / 에디터 패널 오버레이
         m_graphics->EndFrame();                // 6. Present
 
@@ -522,6 +587,11 @@ void Game::SetupShowcaseList()
         L"터레인 · 수력 침식",
         L"물방울 입자가 흙을 깎고 쌓아 계곡을 만든다 · 시간 예산 · 대량 재생성은 작업 스레드로 (S74)",
         [this]() { BuildTerrainEditorScene(true); } });
+
+    m_showcases.push_back({
+        L"터레인 · 물 표면",
+        L"평면 반사 패스 · 깊이 복사로 물 두께 · 굴절 · 프레넬 · 물결 법선 · 해안선 거품 (S76~S78)",
+        [this]() { BuildChunkedTerrainScene(ChunkedMode::Water, "Terrain_Water"); } });
 
     m_showcases.push_back({
         L"2D 스프라이트 데모",
@@ -710,12 +780,14 @@ void Game::UpdateControlsPanel()
 
     SkyRenderer* sky = nullptr;
     Camera* camera = nullptr;
+    WaterRenderer* water = nullptr;
     for (const auto& object : scene->GetGameObjects())
     {
         if (!object || object->IsPendingDestroy())
             continue;
         if (!sky)    sky = object->GetComponent<SkyRenderer>();
         if (!camera) camera = object->GetComponent<Camera>();
+        if (!water)  water = object->GetComponent<WaterRenderer>();
     }
 
     auto onOff = [](bool on) { return on ? L"켬" : L"끔"; };
@@ -894,6 +966,17 @@ void Game::UpdateControlsPanel()
             lines.push_back({ L"+ / -", L"구름 양", coverage, true });
         }
         lines.push_back({ L"O", L"안개", onOff(sky->IsFogEnabled()), true });
+    }
+
+    // 물이 있는 씬 (S76~S78)
+    if (water)
+    {
+        wchar_t level[32];
+        _snwprintf_s(level, _countof(level), _TRUNCATE, L"%.1f", water->GetWaterLevel());
+
+        lines.push_back({ L"[ / ]", L"수위", level, true });
+        lines.push_back({ L"X", L"반사 패스", onOff(water->IsReflectionEnabled()), true });
+        lines.push_back({ L"Z", L"굴절 · 깊이", onOff(water->IsRefractionEnabled()), true });
     }
 
     // 카메라가 있는 씬 : 이동 방식
@@ -1208,6 +1291,25 @@ void Game::HandleFrameEndCommands()
             }
             if (input.GetKeyDown('R'))
                 tess->CycleHeightMapSize();
+
+            continue;
+        }
+
+        // ---- 물 (S76~S78) ----
+        if (WaterRenderer* water = object->GetComponent<WaterRenderer>())
+        {
+            if (input.GetKeyDown('X'))
+            {
+                water->ToggleReflection();
+                dxutil::DebugLog(L"[Water] 반사 패스 %s", water->IsReflectionEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('Z'))
+            {
+                water->ToggleRefraction();
+                dxutil::DebugLog(L"[Water] 굴절 · 깊이 %s", water->IsRefractionEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown(VK_OEM_4)) water->SetWaterLevel(water->GetWaterLevel() - 2.0f);   // [
+            if (input.GetKeyDown(VK_OEM_6)) water->SetWaterLevel(water->GetWaterLevel() + 2.0f);   // ]
 
             continue;
         }

@@ -21,6 +21,11 @@ struct VSOutput
     float3 normal   : NORMAL;
     float2 uv       : TEXCOORD0;
     float4 biome    : TEXCOORD1;
+
+    // 반사 패스 (S76) : 이 값이 음수인 쪽은 래스터라이저가 잘라 낸다.
+    //  수면 아래 지형이 뒤집혀 수면 위로 비쳐 보이면 안 되기 때문이다.
+    //  픽셀 셰이더는 이 값을 받지 않으므로 반드시 구조체의 맨 끝에 둔다.
+    float  clip     : SV_ClipDistance0;
 };
 
 VSOutput main(VSInput input)
@@ -45,5 +50,6 @@ VSOutput main(VSInput input)
 
     output.uv = input.uv;
     output.biome = input.biome;   // 삼각형 안에서 보간되어 경계가 부드럽게 섞인다
+    output.clip = dot(float4(output.worldPos, 1.0f), gClipPlane);
     return output;
 }

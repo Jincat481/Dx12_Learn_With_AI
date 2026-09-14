@@ -21,6 +21,7 @@ cbuffer TerrainConstants : register(b0)
     float4   gFogColor;      // rgb : 안개 색   a : 켜짐(0/1)
     float4   gFogParams;     // x : 시작 거리   y : 끝 거리   z : 밀도   w : 태양 산란 세기
     float4   gBrush;         // xy : 브러시 중심(월드 xz)   z : 반경   w : 도구 번호 + 1 (0 이면 끔)
+    float4   gClipPlane;     // 반사 패스에서 이 평면 아래를 잘라 낸다 (S76)
 };
 
 #endif

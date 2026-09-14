@@ -56,7 +56,7 @@ struct TerrainVertex
 };
 
 // 터레인 상수 버퍼 (b0) - Shaders/TerrainCommon.hlsli 와 순서가 같아야 한다
-//  float4x4 2개(128) + float4 11개(176) = 304 bytes (16의 배수)
+//  float4x4 2개(128) + float4 12개(192) = 320 bytes (16의 배수)
 struct TerrainConstantBuffer
 {
     DirectX::XMFLOAT4X4 wvp;
@@ -72,6 +72,25 @@ struct TerrainConstantBuffer
     DirectX::XMFLOAT4   fogColor;      // rgb : 안개 색  a : 켜짐
     DirectX::XMFLOAT4   fogParams;     // x : 시작 거리  y : 끝 거리  z : 밀도  w : 태양 산란
     DirectX::XMFLOAT4   brush;         // xy : 브러시 중심(월드 xz)  z : 반경  w : 도구 번호 + 1 (0 이면 끔)
+    DirectX::XMFLOAT4   clipPlane;     // 이 평면 아래는 잘라 낸다 (반사 패스, S76). 기본 (0,0,0,1) 은 아무것도 자르지 않는다
+};
+
+// 물 상수 버퍼 (b0) - Shaders/WaterCommon.hlsli 와 순서가 같아야 한다
+//  float4x4 2개(128) + float4 10개(160) = 288 bytes
+struct WaterConstantBuffer
+{
+    DirectX::XMFLOAT4X4 wvp;
+    DirectX::XMFLOAT4X4 world;
+    DirectX::XMFLOAT4   eyePosition;   // xyz 카메라 / w 시간
+    DirectX::XMFLOAT4   shallowColor;
+    DirectX::XMFLOAT4   deepColor;     // rgb / a 완전히 깊어지는 두께
+    DirectX::XMFLOAT4   wave;          // x 파장 배율 / y 법선 세기 / z 속도 / w 굴절 왜곡
+    DirectX::XMFLOAT4   lightDirection;
+    DirectX::XMFLOAT4   projection;    // x near / y far / z 1/폭 / w 1/높이
+    DirectX::XMFLOAT4   fogColor;
+    DirectX::XMFLOAT4   fogParams;
+    DirectX::XMFLOAT4   flags;         // x 반사 / y 굴절 / z 거품
+    DirectX::XMFLOAT4   padding;
 };
 
 // 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 7 = 240 bytes

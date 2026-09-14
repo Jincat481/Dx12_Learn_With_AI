@@ -32,7 +32,7 @@ private:
     enum class TerrainMode { Flat, Noise, Image, Splatting };
 
     // 청크 기반 씬 (스텝 5 이후)
-    enum class ChunkedMode { Culling, Lod, LodAdvanced, Sky, Clouds, Infinite, Biomes };
+    enum class ChunkedMode { Culling, Lod, LodAdvanced, Sky, Clouds, Infinite, Biomes, Water };
     void BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneName);
     void BuildTessellationScene();
     void BuildTerrainEditorScene(bool startErosion = false);   // 에디터 : 지형 브러시 (S67~S70), 침식 (S74)
@@ -40,6 +40,9 @@ private:
     // 씬 구성 함수들. 메뉴 항목 하나가 이 중 하나를 부른다.
     void BuildTerrainScene(TerrainMode mode, const std::string& sceneName);
     void BuildSpriteDemoScene();
+
+    // 반사 패스 → 불투명 → 반투명 순서로 씬을 그린다 (S76, S77)
+    void RenderScenePasses();
 
     // 메뉴에 올라가는 항목 하나.
     //  스텝이 늘어나면 SetupMenu 에 한 줄만 더하면 된다.

@@ -72,6 +72,7 @@ public:
     void Initialize(Graphics* graphics);
     void Update();
     void Render();
+    void RenderTransparent();
     void ProcessPendingChanges(Graphics* graphics);
     void DestroyAllComponents();
 

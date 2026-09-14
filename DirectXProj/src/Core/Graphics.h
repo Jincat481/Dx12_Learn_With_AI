@@ -109,6 +109,32 @@ public:
     void SetFog(const FogSettings& fog) { m_fog = fog; }
     const FogSettings& GetFog() const { return m_fog; }
 
+    // ---- 렌더 패스 (S76) ----
+    //  같은 씬을 한 프레임에 여러 번 그린다. 지금 무엇을 그리는 중인지 컴포넌트가 물어볼 수 있다.
+    enum class RenderPass { Main, Reflection };
+    RenderPass GetRenderPass() const { return m_renderPass; }
+
+    // 반사 패스 : 반사 텍스처를 렌더 타깃으로 걸고, 카메라를 수면 기준으로 뒤집고,
+    //  수면 아래를 잘라 내는 평면을 켠다. End 에서 모두 되돌린다.
+    bool BeginReflectionPass(float waterLevel);
+    void EndReflectionPass();
+
+    // ---- 물 (S76~S78) ----
+    struct WaterDrawParams
+    {
+        DirectX::XMFLOAT4 shallowColor{ 0.10f, 0.45f, 0.48f, 1.0f };
+        DirectX::XMFLOAT4 deepColor{ 0.02f, 0.10f, 0.20f, 16.0f };      // a : 완전히 깊어지는 두께
+        DirectX::XMFLOAT4 wave{ 1.0f, 0.35f, 1.0f, 0.03f };            // 파장 배율 / 법선 세기 / 속도 / 굴절 왜곡
+        DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.0f };
+        float time = 0.0f;
+        bool  reflection = true;
+        bool  refraction = true;
+        bool  foam = true;
+    };
+
+    // 불투명 결과를 복사해 두고(한 프레임에 한 번) 수면을 그린다.
+    void DrawWater(const Mesh& mesh, DirectX::FXMMATRIX world, const WaterDrawParams& params);
+
     // ---- 피킹 (3D, S67) ----
     //  화면 좌표 → 월드 공간의 레이. 같은 화면 점을 가장 가까운 깊이(0)와
     //  가장 먼 깊이(1)로 되돌린 두 점을 이으면 그 픽셀을 지나는 시선이 된다.
@@ -142,6 +168,9 @@ private:
     bool CreateMeshPipeline();       // 터레인 셰이더, 상수 버퍼, 래스터라이저 상태
     bool CreateSkyPipeline();        // 하늘 셰이더와 상수 버퍼
     bool CreateTessPipeline();       // 테셀레이션 셰이더와 상수 버퍼
+    bool CreatePassTargets();        // 반사 렌더 타깃, 화면 색 / 깊이 복사본 (S76, S77)
+    bool CreateWaterPipeline();      // 물 셰이더와 상수 버퍼
+    void CaptureOpaqueScene();       // 불투명까지 그린 화면 색과 깊이를 복사한다
 
     ComPtr<ID3D11Device>           m_device;
     ComPtr<ID3D11DeviceContext>    m_context;
@@ -174,6 +203,27 @@ private:
     DirectX::XMFLOAT4X4 m_projection3D{};
     DirectX::XMFLOAT3   m_eyePosition{ 0.0f, 0.0f, 0.0f };
     FogSettings         m_fog;             // 하늘이 매 프레임 채우고 EndFrame 에서 끈다
+
+    // ---- 렌더 패스 (S76, S77) ----
+    RenderPass          m_renderPass = RenderPass::Main;
+    DirectX::XMFLOAT4   m_clipPlane{ 0.0f, 0.0f, 0.0f, 1.0f };
+    DirectX::XMFLOAT4X4 m_savedView3D{};
+    DirectX::XMFLOAT3   m_savedEyePosition{ 0.0f, 0.0f, 0.0f };
+
+    ComPtr<ID3D11Texture2D>          m_reflectionTexture;
+    ComPtr<ID3D11RenderTargetView>   m_reflectionRTV;
+    ComPtr<ID3D11ShaderResourceView> m_reflectionSRV;
+    ComPtr<ID3D11Texture2D>          m_reflectionDepth;
+    ComPtr<ID3D11DepthStencilView>   m_reflectionDSV;
+
+    ComPtr<ID3D11Texture2D>          m_sceneColorCopy;
+    ComPtr<ID3D11ShaderResourceView> m_sceneColorSRV;
+    ComPtr<ID3D11Texture2D>          m_sceneDepthCopy;
+    ComPtr<ID3D11ShaderResourceView> m_sceneDepthSRV;
+    bool                             m_sceneCaptured = false;
+
+    ComPtr<ID3D11Buffer>             m_waterConstantBuffer;
+    std::shared_ptr<Shader>          m_waterShader;
 
     ComPtr<ID3D11Buffer>           m_constantBuffer;   // b0 : WVP + color
     ComPtr<ID3D11SamplerState>     m_samplerState;     // s0
