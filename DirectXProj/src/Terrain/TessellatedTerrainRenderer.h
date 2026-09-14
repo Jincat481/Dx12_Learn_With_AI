@@ -6,6 +6,7 @@
 #include "Engine/GroundProvider.h"
 
 class Graphics;
+class ComputeShader;
 
 // =============================================================
 // TessellatedTerrainRenderer (스텝 7 / S59~S62)
@@ -21,6 +22,10 @@ class Graphics;
 //
 //  높이가 CPU 함수가 아니라 텍스처여야 하는 이유가 여기 있다.
 //  정점이 GPU 에서 생기므로 높이도 GPU 가 읽을 수 있어야 한다.
+//
+//  에디터 연결 (S71, S72)
+//   그 높이 텍스처를 CPU 에서 26만 번 샘플링해 올리는 대신
+//   컴퓨트 셰이더로 GPU 에서 바로 만들 수 있다. U 로 CPU / GPU 를 바꿔 시간을 비교한다.
 // =============================================================
 class TessellatedTerrainRenderer : public Component, public IGroundProvider
 {
@@ -53,12 +58,32 @@ public:
 
     int GetPatchCount() const { return m_patchesX * m_patchesZ; }
 
+    // ---- 에디터 연결 : 컴퓨트 셰이더로 높이맵 생성 (S71, S72) ----
+    void SetGpuGeneration(bool enabled) { m_useGpuGeneration = enabled; m_dirty = true; }
+    bool IsGpuGeneration() const { return m_useGpuGeneration; }
+    void ToggleGpuGeneration() { SetGpuGeneration(!m_useGpuGeneration); }
+    bool IsGpuGenerationAvailable() const;
+
+    // 256 → 512 → 1024 → 2048 → 256 ...
+    void CycleHeightMapSize();
+    int  GetHeightMapSize() const { return m_heightMapSize; }
+
+    // 마지막으로 잰 시간 (아직 안 쟀으면 음수)
+    float GetLastCpuMs() const { return m_lastCpuMs; }
+    float GetLastGpuMs() const { return m_lastGpuMs; }
+    float GetLastReadbackMs() const { return m_lastReadbackMs; }
+    float GetMinHeight() const { return m_minHeight; }
+    float GetMaxHeight() const { return m_maxHeight; }
+
     // ---- 보강 : 지면 높이 (S66) ----
     bool TryGetGroundHeight(float x, float z, float& outHeight) const override;
 
 private:
     bool BuildPatchGrid();
     bool BuildHeightTexture();
+    bool EnsureHeightTexture(int size);
+    void GenerateOnCpu();
+    bool GenerateOnGpu();
 
     Graphics* m_graphics = nullptr;
     Mesh m_patches;
@@ -67,6 +92,19 @@ private:
 
     ComPtr<ID3D11Texture2D>          m_heightTexture;
     ComPtr<ID3D11ShaderResourceView> m_heightSRV;
+    ComPtr<ID3D11UnorderedAccessView> m_heightUAV;    // 컴퓨트 셰이더가 쓰는 쪽 (S71)
+    int m_heightTextureSize = 0;
+
+    // GPU 생성 (S71, S72)
+    std::shared_ptr<ComputeShader> m_heightGen;
+    ComPtr<ID3D11Buffer>    m_genConstants;
+    ComPtr<ID3D11Texture2D> m_stagingTexel;           // 측정용 동기화 : 텍셀 하나만 읽어 온다
+    ComPtr<ID3D11Texture2D> m_stagingFull;            // 높이 범위를 알기 위해 전체를 읽어 온다
+    bool  m_useGpuGeneration = true;
+    float m_lastCpuMs = -1.0f;
+    float m_lastGpuMs = -1.0f;
+    float m_lastReadbackMs = -1.0f;
+    bool  m_gpuWarmedUp = false;                      // 첫 Dispatch 는 재지 않고 한 번 돌려 둔다
 
     int   m_patchesX = 32;
     int   m_patchesZ = 32;

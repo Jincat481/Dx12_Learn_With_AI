@@ -686,6 +686,36 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"+ / -", L"최대 분할", factor, true });
         lines.push_back({ L"N", L"새 지형 생성", L"", false });
         lines.push_back({ L"", L"보내는 패치", patches, true });
+
+        // 에디터 연결 : 컴퓨트 셰이더 (S71, S72)
+        wchar_t sizeText[48];
+        _snwprintf_s(sizeText, _countof(sizeText), _TRUNCATE, L"%d x %d", tess->GetHeightMapSize(), tess->GetHeightMapSize());
+
+        wchar_t cpuText[48];
+        if (tess->GetLastCpuMs() >= 0.0f)
+            _snwprintf_s(cpuText, _countof(cpuText), _TRUNCATE, L"%.1f ms", tess->GetLastCpuMs());
+        else
+            _snwprintf_s(cpuText, _countof(cpuText), _TRUNCATE, L"-");
+
+        wchar_t gpuText[64];
+        if (tess->GetLastGpuMs() >= 0.0f)
+            _snwprintf_s(gpuText, _countof(gpuText), _TRUNCATE, L"%.1f ms · 읽어 오기 %.1f ms",
+                         tess->GetLastGpuMs(), tess->GetLastReadbackMs());
+        else
+            _snwprintf_s(gpuText, _countof(gpuText), _TRUNCATE, L"-");
+
+        wchar_t rangeText[64];
+        _snwprintf_s(rangeText, _countof(rangeText), _TRUNCATE, L"%.2f ~ %.2f", tess->GetMinHeight(), tess->GetMaxHeight());
+
+        const wchar_t* generator = tess->IsGpuGeneration()
+            ? (tess->IsGpuGenerationAvailable() ? L"GPU (컴퓨트 셰이더)" : L"GPU 불가 → CPU")
+            : L"CPU";
+
+        lines.push_back({ L"U", L"높이맵 생성", generator, true });
+        lines.push_back({ L"R", L"높이맵 해상도", sizeText, true });
+        lines.push_back({ L"", L"CPU 생성", cpuText, true });
+        lines.push_back({ L"", L"GPU 생성", gpuText, true });
+        lines.push_back({ L"", L"높이 범위", rangeText, true });
     }
     else if (chunked)
     {
@@ -1095,6 +1125,13 @@ void Game::HandleFrameEndCommands()
                 tess->AdjustMaxFactor(-4.0f);
             if (input.GetKeyDown('N'))
                 tess->Regenerate(static_cast<unsigned>(TimeManager::Get().GetFrameCount() * 2654435761u + 31u));
+            if (input.GetKeyDown('U'))
+            {
+                tess->ToggleGpuGeneration();
+                dxutil::DebugLog(L"[Tess] 높이맵 생성 : %s", tess->IsGpuGeneration() ? L"GPU" : L"CPU");
+            }
+            if (input.GetKeyDown('R'))
+                tess->CycleHeightMapSize();
 
             continue;
         }

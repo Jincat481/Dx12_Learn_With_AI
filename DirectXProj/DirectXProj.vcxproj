@@ -136,6 +136,7 @@
     <ClCompile Include="src\Terrain\HeightGrid.cpp" />
     <ClCompile Include="src\Terrain\TerrainBrush.cpp" />
     <ClCompile Include="src\Engine\GroundRaycast.cpp" />
+    <ClCompile Include="src\Graphics\ComputeShader.cpp" />
     <ClCompile Include="src\Editor\EditorStyle.cpp" />
     <ClCompile Include="src\Editor\HierarchyPanel.cpp" />
     <ClCompile Include="src\Editor\InspectorPanel.cpp" />
@@ -188,6 +189,7 @@
     <ClInclude Include="src\Terrain\HeightGrid.h" />
     <ClInclude Include="src\Terrain\TerrainBrush.h" />
     <ClInclude Include="src\Engine\GroundRaycast.h" />
+    <ClInclude Include="src\Graphics\ComputeShader.h" />
     <ClInclude Include="src\Editor\EditorStyle.h" />
     <ClInclude Include="src\Editor\HierarchyPanel.h" />
     <ClInclude Include="src\Editor\InspectorPanel.h" />
@@ -210,6 +212,7 @@
     <None Include="Shaders\TessHS.hlsl" />
     <None Include="Shaders\TessDS.hlsl" />
     <None Include="Shaders\TessPS.hlsl" />
+    <None Include="Shaders\HeightGenCS.hlsl" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
