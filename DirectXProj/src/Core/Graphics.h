@@ -122,8 +122,8 @@ public:
     // ---- 물 (S76~S78) ----
     struct WaterDrawParams
     {
-        DirectX::XMFLOAT4 shallowColor{ 0.10f, 0.45f, 0.48f, 1.0f };
-        DirectX::XMFLOAT4 deepColor{ 0.02f, 0.10f, 0.20f, 16.0f };      // a : 완전히 깊어지는 두께
+        DirectX::XMFLOAT4 shallowColor{ 0.08f, 0.38f, 0.40f, 1.0f };
+        DirectX::XMFLOAT4 deepColor{ 0.010f, 0.050f, 0.085f, 18.0f };   // a : 완전히 깊어지는 두께
         DirectX::XMFLOAT4 wave{ 1.0f, 0.35f, 1.0f, 0.03f };            // 파장 배율 / 법선 세기 / 속도 / 굴절 왜곡
         DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.0f };
         float time = 0.0f;
@@ -131,10 +131,14 @@ public:
         bool  refraction = true;
         bool  foam = true;
 
-        // 자연스러운 흐름 (S80)
-        bool  flow = true;
-        float flowSpeed = 3.0f;         // 해류 속도 (초당 월드 단위 근처)
-        float flowScale = 0.35f;        // 잔물결 무늬 배율 (클수록 촘촘)
+        // 바다 파도 (S85~S87)
+        ID3D11ShaderResourceView* oceanDisplacement[3] = { nullptr, nullptr, nullptr };
+        ID3D11ShaderResourceView* oceanSlope[3] = { nullptr, nullptr, nullptr };
+        DirectX::XMFLOAT3 oceanTiles{ 400.0f, 71.0f, 13.0f };
+        float significantHeight = 1.0f;
+        float rippleHeightScale = 0.25f;  // 클릭 물결 시뮬레이션 값 → 수면 높이(m)
+        float shoreCalmDepth = 10.0f;     // 이만큼 깊어야 파도가 다 살아난다
+        float whitecaps = 1.0f;
 
         // 클릭 물결 (S79)
         ID3D11ShaderResourceView* rippleHeight = nullptr;
@@ -256,6 +260,7 @@ private:
 
     ComPtr<ID3D11Buffer>             m_waterConstantBuffer;
     std::shared_ptr<Shader>          m_waterShader;
+    ComPtr<ID3D11SamplerState>       m_oceanSampler;   // 파도 텍스처 : 반복 + 비등방 (S85)
 
     ComPtr<ID3D11Buffer>             m_rippleViewConstantBuffer;
     std::shared_ptr<Shader>          m_rippleViewShader;

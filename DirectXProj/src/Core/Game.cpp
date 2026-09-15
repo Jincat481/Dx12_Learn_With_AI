@@ -311,8 +311,8 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         terrain->SetDisplayMode(ChunkedTerrainRenderer::DisplayMode::Splatting);
 
         // 수면 가까이 낮게 서서 멀리 본다. 비스듬히 볼수록 반사가 강해진다(프레넬).
-        camera->SetPosition(XMFLOAT3(0.0f, 30.0f, -140.0f));
-        camera->SetAngles(20.0f, -3.0f);
+        camera->SetPosition(XMFLOAT3(0.0f, 14.0f, -140.0f));
+        camera->SetAngles(20.0f, -6.0f);
 
         GameObject* waterObject = scene->CreateGameObject("Water");
         WaterRenderer* water = waterObject->AddComponent<WaterRenderer>();
@@ -589,8 +589,8 @@ void Game::SetupShowcaseList()
         [this]() { BuildTerrainEditorScene(true); } });
 
     m_showcases.push_back({
-        L"터레인 · 물 표면",
-        L"반사 패스 · 깊이 복사 · 프레넬 · 컬 노이즈 흐름 · 클릭하면 퍼지는 물결 (S76~S80)",
+        L"터레인 · 바다",
+        L"바람 스펙트럼 파도 · 게르스트너 · 흰 파도머리 · 반사 · 클릭 물결 (S76~S87)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Water, "Terrain_Water"); } });
 
     m_showcases.push_back({
@@ -977,7 +977,16 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"[ / ]", L"수위", level, true });
         lines.push_back({ L"X", L"반사 패스", onOff(water->IsReflectionEnabled()), true });
         lines.push_back({ L"Z", L"굴절 · 깊이", onOff(water->IsRefractionEnabled()), true });
-        lines.push_back({ L"U", L"물 흐름 (컬 노이즈)", onOff(water->IsFlowEnabled()), true });
+        wchar_t wind[96];
+        _snwprintf_s(wind, _countof(wind), _TRUNCATE, L"%.0f m/s · 파고 %.1f m · 파장 %.0f m",
+                     water->GetWindSpeed(), water->GetSignificantWaveHeight(), water->GetPeakWavelength());
+
+        wchar_t direction[32];
+        _snwprintf_s(direction, _countof(direction), _TRUNCATE, L"%.0f°", water->GetWindDirection());
+
+        lines.push_back({ L"3", L"바람 세기", wind, true });
+        lines.push_back({ L"4", L"바람 방향 (+45°)", direction, true });
+        lines.push_back({ L"U", L"뾰족한 파도 (게르스트너)", onOff(water->IsChoppy()), true });
         lines.push_back({ L"R", L"빗방울", onOff(water->IsRainEnabled()), true });
         lines.push_back({ L"좌클릭 / 드래그", L"물결 일으키기", L"", false });
         lines.push_back({ L"1", L"물결 높이 보기", onOff(water->IsRippleDebugEnabled()), true });
@@ -1327,14 +1336,15 @@ void Game::HandleFrameEndCommands()
                 dxutil::DebugLog(L"[Water] 굴절 · 깊이 %s", water->IsRefractionEnabled() ? L"켬" : L"끔");
             }
             if (input.GetKeyDown('U'))
-            {
-                water->ToggleFlow();
-                dxutil::DebugLog(L"[Water] 흐름 %s", water->IsFlowEnabled() ? L"켬" : L"끔");
-            }
+                water->ToggleChoppy();
+            if (input.GetKeyDown('4'))
+                water->RotateWind(45.0f);
             if (input.GetKeyDown('1'))
                 water->ToggleRippleDebug();
             if (input.GetKeyDown('2'))
                 water->ToggleAmplitudeView();
+            if (input.GetKeyDown('3'))
+                water->CycleWindSpeed();
             if (input.GetKeyDown('R'))
             {
                 water->ToggleRain();

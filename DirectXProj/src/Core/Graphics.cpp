@@ -77,6 +77,7 @@ void Graphics::Shutdown()
     m_rippleViewShader.reset();
     m_rippleViewConstantBuffer.Reset();
     m_waterShader.reset();
+    m_oceanSampler.Reset();
     m_waterConstantBuffer.Reset();
     m_sceneDepthSRV.Reset();
     m_sceneDepthCopy.Reset();
@@ -974,6 +975,17 @@ bool Graphics::CreateWaterPipeline()
                   L"CreateBuffer(water constant)"))
         return false;
 
+    // 파도 텍스처는 타일로 반복하고, 수면을 비스듬히 볼 때 뭉개지지 않게 비등방 필터를 쓴다.
+    D3D11_SAMPLER_DESC oceanDesc = {};
+    oceanDesc.Filter        = D3D11_FILTER_ANISOTROPIC;
+    oceanDesc.AddressU      = D3D11_TEXTURE_ADDRESS_WRAP;
+    oceanDesc.AddressV      = D3D11_TEXTURE_ADDRESS_WRAP;
+    oceanDesc.AddressW      = D3D11_TEXTURE_ADDRESS_WRAP;
+    oceanDesc.MaxAnisotropy = 8;
+    oceanDesc.MaxLOD        = D3D11_FLOAT32_MAX;
+    if (DX_FAILED(m_device->CreateSamplerState(&oceanDesc, m_oceanSampler.GetAddressOf()), L"CreateSamplerState(ocean)"))
+        return false;
+
     Shader::Desc shaderDesc;
     shaderDesc.vsPath = Paths::Resolve(L"Shaders/WaterVS.hlsl");
     shaderDesc.psPath = Paths::Resolve(L"Shaders/WaterPS.hlsl");
@@ -1033,7 +1045,8 @@ void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParam
         cb->flags = XMFLOAT4(params.reflection ? 1.0f : 0.0f, params.refraction ? 1.0f : 0.0f, params.foam ? 1.0f : 0.0f,
                              params.rippleDebug ? 1.0f : 0.0f);
         cb->ripple = params.rippleHeight ? params.rippleRegion : XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
-        cb->flow = XMFLOAT4(params.flow ? 1.0f : 0.0f, params.flowSpeed, params.flowScale, params.rippleTexel);
+        cb->ocean = XMFLOAT4(params.oceanTiles.x, params.oceanTiles.y, params.oceanTiles.z, params.rippleTexel);
+        cb->ocean2 = XMFLOAT4(params.significantHeight, params.rippleHeightScale, params.shoreCalmDepth, params.whitecaps);
         cb->shore = params.shoreMask ? params.shoreRegion : XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
 
         m_context->Unmap(m_waterConstantBuffer.Get(), 0);
@@ -1054,16 +1067,30 @@ void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParam
     m_context->VSSetConstantBuffers(0, 1, m_waterConstantBuffer.GetAddressOf());
     m_context->PSSetConstantBuffers(0, 1, m_waterConstantBuffer.GetAddressOf());
 
-    ID3D11ShaderResourceView* views[5] = { m_reflectionSRV.Get(), m_sceneColorSRV.Get(), m_sceneDepthSRV.Get(),
-                                           params.rippleHeight, params.shoreMask };
-    m_context->PSSetShaderResources(0, 5, views);
-    m_context->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());   // CLAMP : 화면 밖을 반복해 읽으면 안 된다
+    // s0 CLAMP : 화면 · 해안 맵 · 클릭 물결은 반복해 읽으면 안 된다   s1 WRAP : 파도 타일
+    ID3D11SamplerState* samplers[2] = { m_samplerState.Get(), m_oceanSampler.Get() };
+
+    // 정점 셰이더 : 파도 변위로 격자를 실제로 들어 올린다 (S85)
+    ID3D11ShaderResourceView* vertexViews[5] = { params.rippleHeight, params.shoreMask,
+                                                 params.oceanDisplacement[0], params.oceanDisplacement[1], params.oceanDisplacement[2] };
+    m_context->VSSetShaderResources(3, 5, vertexViews);
+    m_context->VSSetSamplers(0, 2, samplers);
+
+    ID3D11ShaderResourceView* views[11] =
+    {
+        m_reflectionSRV.Get(), m_sceneColorSRV.Get(), m_sceneDepthSRV.Get(), params.rippleHeight, params.shoreMask,
+        params.oceanDisplacement[0], params.oceanDisplacement[1], params.oceanDisplacement[2],
+        params.oceanSlope[0], params.oceanSlope[1], params.oceanSlope[2],
+    };
+    m_context->PSSetShaderResources(0, 11, views);
+    m_context->PSSetSamplers(0, 2, samplers);
 
     m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
 
-    // 다음 프레임에 이 텍스처들로 다시 그리거나 복사해 넣으려면 입력으로 묶여 있으면 안 된다.
-    ID3D11ShaderResourceView* nullViews[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
-    m_context->PSSetShaderResources(0, 5, nullViews);
+    // 다음 프레임에 이 텍스처들을 렌더 타깃으로 쓰거나 복사해 넣으려면 입력으로 묶여 있으면 안 된다.
+    ID3D11ShaderResourceView* nullViews[11] = {};
+    m_context->VSSetShaderResources(3, 5, nullViews);
+    m_context->PSSetShaderResources(0, 11, nullViews);
 }
 
 // =============================================================

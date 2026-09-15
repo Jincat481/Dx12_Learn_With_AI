@@ -3,6 +3,7 @@
 #include "Engine/Component.h"
 #include "Graphics/Mesh.h"
 #include "Engine/WaterRipples.h"
+#include "Engine/OceanWaves.h"
 
 #include <random>
 
@@ -20,7 +21,9 @@ class Graphics;
 //  그래서 일반 Render 가 아니라 RenderTransparent 단계에서 그린다.
 //
 //  클릭 물결 (S79) : 마우스 레이와 수면의 교점에 물방울을 떨어뜨리고, 렌더 타깃 핑퐁으로 퍼뜨린다.
-//  자연스러운 흐름 (S80) : 컬 노이즈 해류를 따라 잔물결 무늬를 흘려보낸다 (셰이더).
+//
+//  바다 (S85~S87) : 수면은 카메라를 따라다니는 촘촘한 격자다. OceanWaves 가 바람 스펙트럼으로
+//  계산한 파도 텍스처를 정점 셰이더가 읽어 실제로 들어 올린다.
 // =============================================================
 class WaterRenderer : public Component
 {
@@ -49,10 +52,6 @@ public:
     bool IsRefractionEnabled() const { return m_refraction; }
     void ToggleRefraction() { m_refraction = !m_refraction; }
 
-    void SetFlowEnabled(bool enabled) { m_flow = enabled; }
-    bool IsFlowEnabled() const { return m_flow; }
-    void ToggleFlow() { m_flow = !m_flow; }
-
     void SetRainEnabled(bool enabled) { m_rain = enabled; }
     bool IsRainEnabled() const { return m_rain; }
     void ToggleRain() { m_rain = !m_rain; }
@@ -66,6 +65,16 @@ public:
     bool IsAmplitudeViewEnabled() const { return m_amplitudeView; }
     void ToggleAmplitudeView();
 
+    // ---- 바다 파도 (S85~S87) ----
+    void  CycleWindSpeed();                       // 4 → 8 → 13 → 18 m/s
+    void  RotateWind(float degrees);
+    void  ToggleChoppy();                         // 뾰족한 마루(게르스트너) ↔ 둥근 사인파
+    bool  IsChoppy() const { return m_ocean.GetChoppiness() > 0.01f; }
+    float GetWindSpeed() const { return m_ocean.GetWindSpeed(); }
+    float GetWindDirection() const { return m_ocean.GetWindDirection(); }
+    float GetSignificantWaveHeight() const { return m_ocean.GetSignificantHeight(); }
+    float GetPeakWavelength() const { return m_ocean.GetPeakWavelength(); }
+
     // GDI 오버레이 단계에서 Game 이 부른다. (텍스처 창은 RenderTransparent 에서 D3D 로 먼저 그린다)
     void DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewportHeight) const;
 
@@ -77,6 +86,7 @@ private:
     bool PickWaterSurface(int mouseX, int mouseY, DirectX::XMFLOAT3& outHit) const;
     void AddRainDrops();
     void UpdateShoreMask();
+    bool BuildOceanGrid();
 
     struct AmplitudeLayout
     {
@@ -94,7 +104,8 @@ private:
     void AnalyzeReadback(bool freshData);
 
     Graphics* m_graphics = nullptr;
-    Mesh      m_plane;
+    Mesh      m_plane;          // 바다 격자 (S85)
+    OceanWaves m_ocean;
 
     // 클릭 물결 (S79)
     WaterRipples m_ripples;
@@ -103,15 +114,14 @@ private:
     float m_stepAccumulator = 0.0f;
     std::mt19937 m_rng{ 4242u };
 
-    bool  m_flow = true;
     bool  m_rain = false;
     bool  m_rippleDebug = false;
 
-    // 해안 마스크 (S81) : 물결 영역을 128 x 128 로 나눠 땅이면 1 을 적는다.
+    // 해안 높이 맵 (S81, S84) : 물결 영역을 128 x 128 로 나눠 "땅 높이 - 수위" 를 적는다. 양수면 땅(벽).
     //  한 번에 다 구하면 수천 번의 지면 질의로 프레임이 멈추므로 몇 줄씩 나눠 굽는다.
     ComPtr<ID3D11Texture2D>          m_shoreTexture;
     ComPtr<ID3D11ShaderResourceView> m_shoreView;
-    std::vector<uint8_t>             m_shoreBuilding;
+    std::vector<float>               m_shoreBuilding;   // 땅 높이 - 수위 (양수 땅, 음수 물 깊이)
     std::vector<const IGroundProvider*> m_shoreProviders;
     DirectX::XMFLOAT3 m_shoreBuildRegion{ 0.0f, 0.0f, 1.0f };
     DirectX::XMFLOAT3 m_shoreRegion{ 0.0f, 0.0f, 1.0f };
@@ -157,4 +167,6 @@ private:
     bool  m_foam = true;
 
     static constexpr float kHalfSize = 2000.0f;   // far 평면(1000)보다 넉넉히
+    static constexpr int   kGridSize = 256;       // 격자 한 변의 정점 수
+    static constexpr float kNearExtent = 40.0f;   // 가운데 간격 = 이 값 · 2 / (정점 수 - 1) ≈ 0.31 m
 };

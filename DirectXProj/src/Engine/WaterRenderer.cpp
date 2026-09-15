@@ -22,38 +22,31 @@ void WaterRenderer::Initialize(Graphics* graphics)
     if (!m_graphics || !m_graphics->GetDevice())
         return;
 
-    // 정점 4개짜리 큰 판. 물결은 픽셀 셰이더가 법선으로 만든다.
-    TerrainVertex vertices[4] = {};
-    vertices[0].position = XMFLOAT3(-kHalfSize, 0.0f,  kHalfSize);
-    vertices[1].position = XMFLOAT3( kHalfSize, 0.0f,  kHalfSize);
-    vertices[2].position = XMFLOAT3(-kHalfSize, 0.0f, -kHalfSize);
-    vertices[3].position = XMFLOAT3( kHalfSize, 0.0f, -kHalfSize);
-
-    for (TerrainVertex& vertex : vertices)
-        vertex.normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
-
-    const uint32_t indices[6] = { 0, 1, 2, 2, 1, 3 };
-
-    m_plane.Create(m_graphics->GetDevice(), vertices, 4, static_cast<UINT>(sizeof(TerrainVertex)), indices, 6);
+    // 바다 격자와 파도 (S85)
+    BuildOceanGrid();
+    m_ocean.Initialize(m_graphics->GetDevice());
 
     // 카메라 주변 384 x 384 영역을 512 x 512 텍셀로 시뮬레이션한다 (텍셀 하나 0.75).
     m_ripples.Initialize(m_graphics->GetDevice(), 512, 384.0f);
 
-    // 해안 마스크 텍스처 (S81) : 1 바이트짜리 128 x 128. 처음엔 전부 물.
+    // 해안 높이 맵 (S81, S84) : 실수 128 x 128. 값 = 땅 높이 - 수위. 처음엔 전부 깊은 물.
+    //  땅/물 한 비트만 담으면 벽 판정밖에 못 한다. 높이를 담아 두면
+    //   - 선형 보간한 값이 0 이 되는 자리가 곧 해안선이라 계단 없이 매끄럽고
+    //   - 진폭 창에서 지형을 높이별 색 · 등고선으로, 물은 깊이별로 칠할 수 있다.
     D3D11_TEXTURE2D_DESC shore = {};
     shore.Width            = kShoreSize;
     shore.Height           = kShoreSize;
     shore.MipLevels        = 1;
     shore.ArraySize        = 1;
-    shore.Format           = DXGI_FORMAT_R8_UNORM;
+    shore.Format           = DXGI_FORMAT_R32_FLOAT;
     shore.SampleDesc.Count = 1;
     shore.Usage            = D3D11_USAGE_DEFAULT;
     shore.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
 
-    std::vector<uint8_t> water(static_cast<size_t>(kShoreSize) * kShoreSize, 0);
+    std::vector<float> water(static_cast<size_t>(kShoreSize) * kShoreSize, -1000.0f);
     D3D11_SUBRESOURCE_DATA data = {};
     data.pSysMem = water.data();
-    data.SysMemPitch = kShoreSize;
+    data.SysMemPitch = sizeof(float) * kShoreSize;
 
     if (FAILED(m_graphics->GetDevice()->CreateTexture2D(&shore, &data, m_shoreTexture.GetAddressOf())) ||
         FAILED(m_graphics->GetDevice()->CreateShaderResourceView(m_shoreTexture.Get(), nullptr, m_shoreView.GetAddressOf())))
@@ -66,6 +59,7 @@ void WaterRenderer::Initialize(Graphics* graphics)
 void WaterRenderer::OnDestroy()
 {
     m_ripples.Release();
+    m_ocean.Release();
     m_shoreView.Reset();
     m_shoreTexture.Reset();
     m_shoreProviders.clear();
@@ -77,6 +71,10 @@ void WaterRenderer::Update()
 {
     const float deltaTime = (std::min)(TimeManager::Get().GetDeltaTime(), 0.25f);
     m_time += deltaTime;
+
+    // 바다 파도 텍스처 (S85) : 매 프레임 렌더 타깃에 새로 그린다
+    if (m_graphics)
+        m_ocean.Update(m_graphics->GetContext(), m_time, deltaTime);
 
     if (!m_graphics || !m_ripples.IsValid())
         return;
@@ -369,7 +367,7 @@ void WaterRenderer::DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewpor
     const int oldBkMode = ::SetBkMode(hdc, TRANSPARENT);
 
     wchar_t line[160];
-    _snwprintf_s(line, _countof(line), _TRUNCATE, L"물결 높이 텍스처  %d x %d  (2 로 닫기)",
+    _snwprintf_s(line, _countof(line), _TRUNCATE, L"물결 높이 텍스처  %d x %d · 지형도  (2 닫기)",
                  m_ripples.GetSize(), m_ripples.GetSize());
     editor::DrawLabel(hdc, panel.left + 8, panel.top + 4, line, editor::kTextNormal);
 
@@ -406,6 +404,7 @@ void WaterRenderer::DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewpor
         _snwprintf_s(line, _countof(line), _TRUNCATE, L"단면 : %s 줄   눈금 ±%.3f",
                      m_profileFromCursor ? L"커서" : L"최대 진폭", scale);
         editor::DrawLabel(hdc, layout.text.left, y, line, editor::kTextDim);
+
     }
 
     // ---- 단면 그래프 : 한 줄의 높이를 파형으로 ----
@@ -555,7 +554,7 @@ void WaterRenderer::UpdateShoreMask()
 
         m_shoreBuildRegion = region;
         m_shoreBuildLevel = m_level;
-        m_shoreBuilding.assign(static_cast<size_t>(kShoreSize) * kShoreSize, 0);
+        m_shoreBuilding.assign(static_cast<size_t>(kShoreSize) * kShoreSize, -1000.0f);
         m_shoreRow = 0;
     }
 
@@ -571,19 +570,17 @@ void WaterRenderer::UpdateShoreMask()
         {
             const float x = m_shoreBuildRegion.x + (column + 0.5f) * cell;
 
-            bool land = false;
+            // 수면 기준 높이. 양수(수면 위로 드러난 땅)만 벽이다.
+            //  얕은 물까지 벽으로 두면 물가에 떨어뜨린 물방울이 바로 지워진다. 지형 밖은 깊은 물로 둔다.
+            float relative = -1000.0f;
             for (const IGroundProvider* provider : m_shoreProviders)
             {
                 float height = 0.0f;
-                // 수면 위로 드러난 땅만 벽이다. 얕은 물까지 벽으로 두면 물가에 떨어뜨린 물방울이 바로 지워진다.
-                if (provider->TryGetGroundHeight(x, z, height) && height > m_shoreBuildLevel)
-                {
-                    land = true;
-                    break;
-                }
+                if (provider->TryGetGroundHeight(x, z, height))
+                    relative = (std::max)(relative, height - m_shoreBuildLevel);
             }
 
-            m_shoreBuilding[static_cast<size_t>(row) * kShoreSize + column] = land ? 255 : 0;
+            m_shoreBuilding[static_cast<size_t>(row) * kShoreSize + column] = relative;
         }
     }
 
@@ -592,7 +589,7 @@ void WaterRenderer::UpdateShoreMask()
     if (m_shoreRow >= kShoreSize)
     {
         m_graphics->GetContext()->UpdateSubresource(m_shoreTexture.Get(), 0, nullptr,
-                                                    m_shoreBuilding.data(), kShoreSize, 0);
+                                                    m_shoreBuilding.data(), sizeof(float) * kShoreSize, 0);
         m_shoreRegion = m_shoreBuildRegion;
         m_shoreLevel = m_shoreBuildLevel;
         m_hasShore = true;
@@ -624,16 +621,28 @@ void WaterRenderer::RenderTransparent()
     if (m_graphics->GetRenderPass() != Graphics::RenderPass::Main)
         return;
 
-    // 판을 카메라 발밑으로 옮긴다. 물결은 월드 좌표로 계산하므로 판이 움직여도 흐름이 튀지 않는다.
+    // 격자를 카메라 발밑으로 옮긴다. 가운데 정점 간격의 두 배 단위로만 옮겨 정점이 매 프레임 미끄러지지 않게 한다.
+    //  파도는 월드 좌표로 읽으므로 격자가 옮겨져도 파도 모양은 그대로다.
     const XMFLOAT3 eye = m_graphics->GetEyePosition3D();
-    const XMMATRIX world = XMMatrixTranslation(eye.x, m_level, eye.z);
+    const float snap = kNearExtent * 4.0f / static_cast<float>(kGridSize - 1);
+    const XMMATRIX world = XMMatrixTranslation(std::floor(eye.x / snap) * snap, m_level, std::floor(eye.z / snap) * snap);
 
     Graphics::WaterDrawParams params;
     params.time = m_time;
     params.reflection = m_reflection;
     params.refraction = m_refraction;
     params.foam = m_foam;
-    params.flow = m_flow;
+
+    if (m_ocean.IsValid())
+    {
+        for (int i = 0; i < OceanWaves::kCascadeCount; ++i)
+        {
+            params.oceanDisplacement[i] = m_ocean.GetDisplacementSRV(i);
+            params.oceanSlope[i] = m_ocean.GetSlopeSRV(i);
+        }
+        params.oceanTiles = XMFLOAT3(m_ocean.GetTileSize(0), m_ocean.GetTileSize(1), m_ocean.GetTileSize(2));
+        params.significantHeight = m_ocean.GetSignificantHeight();
+    }
     params.rippleDebug = m_rippleDebug;
 
     if (m_hasShore && m_shoreView)
@@ -693,7 +702,9 @@ void WaterRenderer::ToJson(json::Value& out) const
     out["reflection"] = json::Value(m_reflection);
     out["refraction"] = json::Value(m_refraction);
     out["foam"]       = json::Value(m_foam);
-    out["flow"]       = json::Value(m_flow);
+    out["windSpeed"]  = json::Value(m_ocean.GetWindSpeed());
+    out["windDir"]    = json::Value(m_ocean.GetWindDirection());
+    out["choppiness"] = json::Value(m_ocean.GetChoppiness());
     out["rain"]       = json::Value(m_rain);
 }
 
@@ -704,6 +715,94 @@ void WaterRenderer::FromJson(const json::Value& in)
     if (const json::Value* value = in.Find("reflection")) m_reflection = value->AsBool(m_reflection);
     if (const json::Value* value = in.Find("refraction")) m_refraction = value->AsBool(m_refraction);
     if (const json::Value* value = in.Find("foam"))       m_foam       = value->AsBool(m_foam);
-    if (const json::Value* value = in.Find("flow"))       m_flow       = value->AsBool(m_flow);
+    float windSpeed = m_ocean.GetWindSpeed();
+    float windDirection = m_ocean.GetWindDirection();
+    if (const json::Value* value = in.Find("windSpeed"))  windSpeed = value->AsFloat(windSpeed);
+    if (const json::Value* value = in.Find("windDir"))    windDirection = value->AsFloat(windDirection);
+    m_ocean.SetWind(windSpeed, windDirection);
+    if (const json::Value* value = in.Find("choppiness")) m_ocean.SetChoppiness(value->AsFloat(m_ocean.GetChoppiness()));
     if (const json::Value* value = in.Find("rain"))       m_rain       = value->AsBool(m_rain);
+}
+
+// =============================================================
+// 바다 (S85~S87)
+// =============================================================
+
+// -------------------------------------------------------------
+// 카메라를 따라다니는 격자
+//  -1 ~ 1 로 고르게 나눈 좌표 u 를  x = 부호(u) · (a|u| + b|u|⁵)  로 늘인다.
+//   가운데는 a 가 지배해 0.3 m 간격(잔물결까지 모양이 나온다),
+//   가장자리는 b|u|⁵ 가 지배해 수십 m 간격(멀리 있는 수면은 화면에서 작다).
+//  정점 65,536 개로 반경 2 km 를 덮는다.
+// -------------------------------------------------------------
+bool WaterRenderer::BuildOceanGrid()
+{
+    if (!m_graphics || !m_graphics->GetDevice())
+        return false;
+
+    auto stretch = [](float u)
+    {
+        const float a = std::fabs(u);
+        const float outer = kHalfSize - kNearExtent;   // (far 는 Windows 헤더의 매크로라 이름으로 못 쓴다)
+        return (u < 0.0f ? -1.0f : 1.0f) * (kNearExtent * a + outer * a * a * a * a * a);
+    };
+
+    std::vector<TerrainVertex> vertices(static_cast<size_t>(kGridSize) * kGridSize);
+    for (int row = 0; row < kGridSize; ++row)
+    {
+        const float z = stretch(static_cast<float>(row) / (kGridSize - 1) * 2.0f - 1.0f);
+        for (int column = 0; column < kGridSize; ++column)
+        {
+            TerrainVertex& vertex = vertices[static_cast<size_t>(row) * kGridSize + column];
+            vertex = TerrainVertex{};
+            vertex.position = XMFLOAT3(stretch(static_cast<float>(column) / (kGridSize - 1) * 2.0f - 1.0f), 0.0f, z);
+            vertex.normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
+        }
+    }
+
+    std::vector<uint32_t> indices;
+    indices.reserve(static_cast<size_t>(kGridSize - 1) * (kGridSize - 1) * 6);
+    for (int row = 0; row + 1 < kGridSize; ++row)
+    {
+        for (int column = 0; column + 1 < kGridSize; ++column)
+        {
+            const uint32_t a = static_cast<uint32_t>(row * kGridSize + column);
+            const uint32_t b = a + 1;
+            const uint32_t c = a + static_cast<uint32_t>(kGridSize);
+            const uint32_t d = c + 1;
+            indices.push_back(a); indices.push_back(c); indices.push_back(b);
+            indices.push_back(b); indices.push_back(c); indices.push_back(d);
+        }
+    }
+
+    return m_plane.Create(m_graphics->GetDevice(), vertices.data(), static_cast<UINT>(vertices.size()),
+                          static_cast<UINT>(sizeof(TerrainVertex)), indices.data(), static_cast<UINT>(indices.size()));
+}
+
+void WaterRenderer::CycleWindSpeed()
+{
+    constexpr float kSpeeds[] = { 4.0f, 8.0f, 13.0f, 18.0f };
+    const float current = m_ocean.GetWindSpeed();
+
+    float next = kSpeeds[0];
+    for (size_t i = 0; i < sizeof(kSpeeds) / sizeof(kSpeeds[0]); ++i)
+    {
+        if (kSpeeds[i] > current + 0.5f)
+        {
+            next = kSpeeds[i];
+            break;
+        }
+    }
+
+    m_ocean.SetWind(next, m_ocean.GetWindDirection());
+}
+
+void WaterRenderer::RotateWind(float degrees)
+{
+    m_ocean.SetWind(m_ocean.GetWindSpeed(), m_ocean.GetWindDirection() + degrees);
+}
+
+void WaterRenderer::ToggleChoppy()
+{
+    m_ocean.SetChoppiness(IsChoppy() ? 0.0f : 1.0f);
 }

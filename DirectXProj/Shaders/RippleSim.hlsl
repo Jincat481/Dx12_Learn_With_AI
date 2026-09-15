@@ -70,7 +70,8 @@ bool IsLand(int2 texel)
     if (any(uv < 0.0f) || any(uv > 1.0f))
         return false;
 
-    return gShoreMask.SampleLevel(gLinear, uv, 0) > 0.5f;
+    // 해안 높이 맵(땅 높이 - 수위)을 선형 보간한 값이 0 을 넘는 곳이 땅이다. 해안선이 계단지지 않는다.
+    return gShoreMask.SampleLevel(gLinear, uv, 0) > 0.0f;
 }
 
 // ---- 픽셀 셰이더 : 텍셀 하나의 다음 높이 ----

@@ -91,7 +91,8 @@ struct WaterConstantBuffer
     DirectX::XMFLOAT4   fogParams;
     DirectX::XMFLOAT4   flags;         // x 반사 / y 굴절 / z 거품
     DirectX::XMFLOAT4   ripple;        // xy 물결 영역 원점 / z 크기 / w 법선 세기 (S79)
-    DirectX::XMFLOAT4   flow;          // x 켜짐 / y 속도 / z 무늬 배율 / w 물결 텍셀 크기 (S80)
+    DirectX::XMFLOAT4   ocean;         // xyz 파도 타일 3단 크기 / w 클릭 물결 텍셀 크기 (S85)
+    DirectX::XMFLOAT4   ocean2;        // x 유의파고 / y 클릭 물결 높이 배율 / z 파도가 살아나는 깊이 / w 흰 파도머리 세기
     DirectX::XMFLOAT4   shore;         // xy 해안 마스크 원점 / z 크기 / w 있음 (S81)
 };
 
