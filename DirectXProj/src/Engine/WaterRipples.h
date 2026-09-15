@@ -43,6 +43,13 @@ public:
 
     ID3D11ShaderResourceView* GetHeightSRV() const;
 
+    // ---- 값 읽어 오기 (S82) ----
+    //  Request : 지금 높이를 스테이징 텍스처로 복사하라고 명령만 넣는다 (기다리지 않는다)
+    //  Poll    : 복사가 끝났으면 꺼내 온다. 아직이면 false 를 돌려주고 다음 프레임에 다시 본다
+    void RequestReadback(ID3D11DeviceContext* context);
+    bool PollReadback(ID3D11DeviceContext* context, std::vector<float>& outHeights, DirectX::XMFLOAT3& outRegion);
+    bool IsReadbackPending() const { return m_readPending; }
+
     // x : 영역 원점 X   y : 영역 원점 Z   z : 한 변의 월드 길이
     DirectX::XMFLOAT3 GetRegion() const;
     int    GetSize() const { return m_size; }
@@ -83,6 +90,10 @@ private:
     bool m_hasOrigin = false;
 
     std::vector<Drop> m_drops;
+
+    ComPtr<ID3D11Texture2D> m_staging;           // CPU 가 Map 할 수 있는 복사본
+    DirectX::XMFLOAT3       m_readRegion{ 0.0f, 0.0f, 1.0f };
+    bool                    m_readPending = false;
 
     static constexpr int    kMaxDropsPerStep = 4;
     static constexpr size_t kMaxQueuedDrops = 32;

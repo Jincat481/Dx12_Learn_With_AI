@@ -981,6 +981,7 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"R", L"빗방울", onOff(water->IsRainEnabled()), true });
         lines.push_back({ L"좌클릭 / 드래그", L"물결 일으키기", L"", false });
         lines.push_back({ L"1", L"물결 높이 보기", onOff(water->IsRippleDebugEnabled()), true });
+        lines.push_back({ L"2", L"진폭 보기 (텍스처)", onOff(water->IsAmplitudeViewEnabled()), true });
         lines.push_back({ L"", L"해안 반사", water->IsBuildingShore() ? L"굽는 중" : (water->HasShore() ? L"켬" : L"-"), true });
     }
 
@@ -1029,6 +1030,18 @@ void Game::DrawOverlayUI()
         m_hierarchy.Draw(hdc, m_selectedId);
         m_inspector.Draw(hdc);
         m_controls.Draw(hdc, m_graphics->GetWidth(), m_graphics->GetHeight());
+
+        // 물 진폭 보기의 숫자와 그래프 (S82)
+        if (Scene* scene = SceneManager::Get().GetActiveScene())
+        {
+            for (const auto& object : scene->GetGameObjects())
+            {
+                if (!object || object->IsPendingDestroy())
+                    continue;
+                if (WaterRenderer* water = object->GetComponent<WaterRenderer>())
+                    water->DrawAmplitudeOverlay(hdc, m_graphics->GetWidth(), m_graphics->GetHeight());
+            }
+        }
     }
 
     m_graphics->EndOverlay();
@@ -1320,6 +1333,8 @@ void Game::HandleFrameEndCommands()
             }
             if (input.GetKeyDown('1'))
                 water->ToggleRippleDebug();
+            if (input.GetKeyDown('2'))
+                water->ToggleAmplitudeView();
             if (input.GetKeyDown('R'))
             {
                 water->ToggleRain();

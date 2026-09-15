@@ -150,6 +150,22 @@ public:
     // 불투명 결과를 복사해 두고(한 프레임에 한 번) 수면을 그린다.
     void DrawWater(const Mesh& mesh, DirectX::FXMMATRIX world, const WaterDrawParams& params);
 
+    // ---- 물결 높이 텍스처 보기 (S82) ----
+    //  화면의 정사각형 창 하나에 높이 텍스처를 색으로 그린다. GDI 오버레이보다 먼저 불러야 한다.
+    struct RippleViewParams
+    {
+        ID3D11ShaderResourceView* height = nullptr;
+        ID3D11ShaderResourceView* shore = nullptr;
+        DirectX::XMFLOAT4 region{ 0.0f, 0.0f, 1.0f, 0.0f };
+        DirectX::XMFLOAT4 shoreRegion{ 0.0f, 0.0f, 1.0f, 0.0f };   // w : 있음
+        DirectX::XMFLOAT4 marker{ 0.0f, 0.0f, 0.0f, 0.0f };        // xy 점 / z 단면 줄 / w 있음
+        float amplitudeScale = 1.0f;
+        int   x = 0;
+        int   y = 0;
+        int   size = 256;
+    };
+    void DrawRippleView(const RippleViewParams& params);
+
     // ---- 피킹 (3D, S67) ----
     //  화면 좌표 → 월드 공간의 레이. 같은 화면 점을 가장 가까운 깊이(0)와
     //  가장 먼 깊이(1)로 되돌린 두 점을 이으면 그 픽셀을 지나는 시선이 된다.
@@ -185,6 +201,7 @@ private:
     bool CreateTessPipeline();       // 테셀레이션 셰이더와 상수 버퍼
     bool CreatePassTargets();        // 반사 렌더 타깃, 화면 색 / 깊이 복사본 (S76, S77)
     bool CreateWaterPipeline();      // 물 셰이더와 상수 버퍼
+    bool CreateRippleViewPipeline(); // 물결 텍스처 보기 (S82)
     void CaptureOpaqueScene();       // 불투명까지 그린 화면 색과 깊이를 복사한다
 
     ComPtr<ID3D11Device>           m_device;
@@ -239,6 +256,9 @@ private:
 
     ComPtr<ID3D11Buffer>             m_waterConstantBuffer;
     std::shared_ptr<Shader>          m_waterShader;
+
+    ComPtr<ID3D11Buffer>             m_rippleViewConstantBuffer;
+    std::shared_ptr<Shader>          m_rippleViewShader;
 
     ComPtr<ID3D11Buffer>           m_constantBuffer;   // b0 : WVP + color
     ComPtr<ID3D11SamplerState>     m_samplerState;     // s0

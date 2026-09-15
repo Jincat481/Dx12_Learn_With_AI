@@ -225,6 +225,7 @@
     <None Include="Shaders\WaterVS.hlsl" />
     <None Include="Shaders\WaterPS.hlsl" />
     <None Include="Shaders\RippleSim.hlsl" />
+    <None Include="Shaders\RippleView.hlsl" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

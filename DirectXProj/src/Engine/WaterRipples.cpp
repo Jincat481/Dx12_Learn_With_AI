@@ -128,6 +128,8 @@ void WaterRipples::Release()
         m_targets[i].Reset();
         m_textures[i].Reset();
     }
+    m_staging.Reset();
+    m_readPending = false;
     m_linearSampler.Reset();
     m_rasterizer.Reset();
     m_constants.Reset();
@@ -159,6 +161,74 @@ void WaterRipples::SetShoreMask(ID3D11ShaderResourceView* mask, const XMFLOAT3& 
 ID3D11ShaderResourceView* WaterRipples::GetHeightSRV() const
 {
     return m_views[m_current].Get();
+}
+
+// -------------------------------------------------------------
+// GPU → CPU 읽어 오기 (S82)
+//  렌더 타깃은 GPU 메모리라 CPU 가 바로 읽을 수 없다. STAGING 텍스처로 복사한 뒤 Map 한다.
+//
+//  그냥 Map(READ) 하면 CPU 가 "GPU 가 복사를 끝낼 때까지" 멈춰 기다린다(S72 에서는 시간을 재려고 일부러 그랬다).
+//  매 프레임 보여 줄 값에 그 멈춤을 넣으면 화면이 끊긴다. 그래서
+//   1) 이번 프레임에는 복사 명령만 넣고
+//   2) 다음 프레임부터 D3D11_MAP_FLAG_DO_NOT_WAIT 로 "끝났으면 주고, 아니면 바로 돌아와" 라고 묻는다.
+//  값은 한두 프레임 늦지만 멈춤이 없다.
+// -------------------------------------------------------------
+void WaterRipples::RequestReadback(ID3D11DeviceContext* context)
+{
+    if (!context || !IsValid() || m_readPending)
+        return;
+
+    if (!m_staging)
+    {
+        ComPtr<ID3D11Device> device;
+        context->GetDevice(device.GetAddressOf());
+
+        D3D11_TEXTURE2D_DESC desc = {};
+        m_textures[0]->GetDesc(&desc);
+        desc.Usage          = D3D11_USAGE_STAGING;
+        desc.BindFlags      = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+        if (!device || FAILED(device->CreateTexture2D(&desc, nullptr, m_staging.GetAddressOf())))
+            return;
+    }
+
+    // 명령이 줄에 들어간 순간의 내용이 복사된다. 뒤이어 Step 이 텍스처를 바꿔도 이 복사본은 그대로다.
+    context->CopyResource(m_staging.Get(), m_textures[m_current].Get());
+    m_readRegion = GetRegion();
+    m_readPending = true;
+}
+
+bool WaterRipples::PollReadback(ID3D11DeviceContext* context, std::vector<float>& outHeights, XMFLOAT3& outRegion)
+{
+    if (!context || !m_staging || !m_readPending)
+        return false;
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    const HRESULT hr = context->Map(m_staging.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
+
+    if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
+        return false;   // 아직 복사 중 : 다음 프레임에 다시
+
+    m_readPending = false;
+    if (FAILED(hr))
+        return false;
+
+    outHeights.resize(static_cast<size_t>(m_size) * m_size);
+
+    // 한 줄의 실제 폭은 RowPitch 다. 텍스처 폭보다 클 수 있다.
+    const UINT rowPitch = mapped.RowPitch / sizeof(float);
+    const float* data = static_cast<const float*>(mapped.pData);
+
+    for (int row = 0; row < m_size; ++row)
+    {
+        const float* source = data + static_cast<size_t>(row) * rowPitch;
+        std::copy(source, source + m_size, outHeights.begin() + static_cast<size_t>(row) * m_size);
+    }
+
+    context->Unmap(m_staging.Get(), 0);
+    outRegion = m_readRegion;
+    return true;
 }
 
 XMFLOAT3 WaterRipples::GetRegion() const

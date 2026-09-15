@@ -109,6 +109,15 @@ struct TessConstantBuffer
     DirectX::XMFLOAT4   fogParams;     // x 시작 / y 끝 / z 밀도 / w 태양 산란
 };
 
+// 물결 텍스처 보기 상수 버퍼 (b0) - Shaders/RippleView.hlsl : float4 4개 = 64 bytes (S82)
+struct RippleViewConstantBuffer
+{
+    DirectX::XMFLOAT4 region;
+    DirectX::XMFLOAT4 shore;
+    DirectX::XMFLOAT4 marker;
+    DirectX::XMFLOAT4 params;
+};
+
 // 하늘 상수 버퍼 (b0) : 64 + 16 * 4 = 128 bytes
 struct SkyConstantBuffer
 {

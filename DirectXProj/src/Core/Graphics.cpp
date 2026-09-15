@@ -32,6 +32,7 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
     if (!CreateTessPipeline())           return false;
     if (!CreatePassTargets())            return false;
     if (!CreateWaterPipeline())          return false;
+    if (!CreateRippleViewPipeline())     return false;
 
     TextureManager::Get().Initialize(m_device.Get());
 
@@ -73,6 +74,8 @@ void Graphics::Shutdown()
     m_tessConstantBuffer.Reset();
     m_skyShader.reset();
     m_skyConstantBuffer.Reset();
+    m_rippleViewShader.reset();
+    m_rippleViewConstantBuffer.Reset();
     m_waterShader.reset();
     m_waterConstantBuffer.Reset();
     m_sceneDepthSRV.Reset();
@@ -1061,4 +1064,96 @@ void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParam
     // 다음 프레임에 이 텍스처들로 다시 그리거나 복사해 넣으려면 입력으로 묶여 있으면 안 된다.
     ID3D11ShaderResourceView* nullViews[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
     m_context->PSSetShaderResources(0, 5, nullViews);
+}
+
+// =============================================================
+// 물결 높이 텍스처 보기 (S82)
+// =============================================================
+bool Graphics::CreateRippleViewPipeline()
+{
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = sizeof(RippleViewConstantBuffer);
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (DX_FAILED(m_device->CreateBuffer(&cbDesc, nullptr, m_rippleViewConstantBuffer.GetAddressOf()),
+                  L"CreateBuffer(ripple view constant)"))
+        return false;
+
+    Shader::Desc shaderDesc;
+    shaderDesc.vsPath = Paths::Resolve(L"Shaders/RippleView.hlsl");
+    shaderDesc.psPath = shaderDesc.vsPath;
+    shaderDesc.vsEntry = "VSMain";
+    shaderDesc.psEntry = "PSMain";
+    shaderDesc.layout = TerrainVertex::kLayout;       // 정점 입력은 쓰지 않는다. 그릴 때 레이아웃을 뗀다
+    shaderDesc.layoutCount = TerrainVertex::kLayoutCount;
+
+    m_rippleViewShader = std::make_shared<Shader>();
+    if (!m_rippleViewShader->Load(m_device.Get(), shaderDesc))
+    {
+        // 디버그 보기라 없어도 게임은 돈다.
+        dxutil::DebugLog(L"[Graphics] 물결 보기 셰이더 로드 실패 : %s", m_rippleViewShader->GetLastError().c_str());
+        m_rippleViewShader.reset();
+    }
+
+    return true;
+}
+
+// -------------------------------------------------------------
+//  뷰포트를 창 크기로 좁히고 화면 덮는 삼각형을 그리면, 그 창만 채워진다.
+//  깊이 버퍼는 떼고 그린다(지형 뒤에 가려지면 안 된다). 끝나면 뷰포트와 출력을 되돌린다.
+// -------------------------------------------------------------
+void Graphics::DrawRippleView(const RippleViewParams& params)
+{
+    if (!m_context || !params.height || !m_rippleViewShader || !m_rippleViewShader->IsValid() || params.size <= 0)
+        return;
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (FAILED(m_context->Map(m_rippleViewConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        return;
+
+    RippleViewConstantBuffer* cb = static_cast<RippleViewConstantBuffer*>(mapped.pData);
+    cb->region = params.region;
+    cb->shore = params.shore ? params.shoreRegion : XMFLOAT4(0.0f, 0.0f, 1.0f, 0.0f);
+    cb->marker = params.marker;
+    cb->params = XMFLOAT4(params.amplitudeScale, static_cast<float>(params.size), 0.0f, 0.0f);
+    m_context->Unmap(m_rippleViewConstantBuffer.Get(), 0);
+
+    D3D11_VIEWPORT viewport = {};
+    viewport.TopLeftX = static_cast<float>(params.x);
+    viewport.TopLeftY = static_cast<float>(params.y);
+    viewport.Width    = static_cast<float>(params.size);
+    viewport.Height   = static_cast<float>(params.size);
+    viewport.MaxDepth = 1.0f;
+    m_context->RSSetViewports(1, &viewport);
+
+    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), nullptr);
+    m_context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    m_context->RSSetState(m_rasterSolidState.Get());
+
+    m_rippleViewShader->Bind(m_context.Get());
+    m_context->IASetInputLayout(nullptr);
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    ID3D11ShaderResourceView* views[2] = { params.height, params.shore };
+    m_context->VSSetConstantBuffers(0, 1, m_rippleViewConstantBuffer.GetAddressOf());
+    m_context->PSSetConstantBuffers(0, 1, m_rippleViewConstantBuffer.GetAddressOf());
+    m_context->PSSetShaderResources(0, 2, views);
+    m_context->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());
+
+    m_context->Draw(3, 0);
+
+    ID3D11ShaderResourceView* nullViews[2] = { nullptr, nullptr };
+    m_context->PSSetShaderResources(0, 2, nullViews);
+
+    D3D11_VIEWPORT full = {};
+    full.Width    = static_cast<float>(m_width);
+    full.Height   = static_cast<float>(m_height);
+    full.MaxDepth = 1.0f;
+    m_context->RSSetViewports(1, &full);
+
+    const float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xFFFFFFFF);
+    m_context->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
 }

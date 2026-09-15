@@ -61,6 +61,14 @@ public:
     bool IsRippleDebugEnabled() const { return m_rippleDebug; }
     void ToggleRippleDebug() { m_rippleDebug = !m_rippleDebug; }
 
+    // ---- 진폭 보기 (S82) ----
+    //  물결 높이 텍스처를 화면 오른쪽에 그대로 띄우고, 값을 읽어 와 숫자와 그래프로 보여 준다.
+    bool IsAmplitudeViewEnabled() const { return m_amplitudeView; }
+    void ToggleAmplitudeView();
+
+    // GDI 오버레이 단계에서 Game 이 부른다. (텍스처 창은 RenderTransparent 에서 D3D 로 먼저 그린다)
+    void DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewportHeight) const;
+
     // 해안 마스크를 굽는 중인가 (S81)
     bool IsBuildingShore() const { return m_shoreRow >= 0; }
     bool HasShore() const { return m_hasShore; }
@@ -69,6 +77,21 @@ private:
     bool PickWaterSurface(int mouseX, int mouseY, DirectX::XMFLOAT3& outHit) const;
     void AddRainDrops();
     void UpdateShoreMask();
+
+    struct AmplitudeLayout
+    {
+        RECT panel;
+        RECT texture;
+        RECT text;
+        RECT profile;
+        RECT history;
+    };
+    static AmplitudeLayout ComputeAmplitudeLayout(int viewportWidth, int viewportHeight);
+
+    bool IsInsideAmplitudePanel(int x, int y, bool* insideTexture) const;
+    bool PickFromAmplitudeView(int x, int y, DirectX::XMFLOAT3& outHit) const;
+    void UpdateAmplitudeView(float deltaTime);
+    void AnalyzeReadback(bool freshData);
 
     Graphics* m_graphics = nullptr;
     Mesh      m_plane;
@@ -96,6 +119,29 @@ private:
     float m_shoreLevel = 0.0f;
     int   m_shoreRow = -1;       // 굽는 중인 줄 (-1 이면 쉬는 중)
     bool  m_hasShore = false;
+
+    // 진폭 보기 (S82)
+    bool  m_amplitudeView = false;
+    float m_readbackTimer = 0.0f;
+    std::vector<float> m_readback;                 // 마지막으로 읽어 온 높이 (size x size)
+    DirectX::XMFLOAT3  m_readbackRegion{ 0.0f, 0.0f, 1.0f };
+    bool  m_hasReadback = false;
+    float m_maxAmplitude = 0.0f;
+    float m_rmsAmplitude = 0.0f;
+    int   m_maxColumn = 0;
+    int   m_maxRow = 0;
+    bool  m_probeValid = false;                    // 커서가 수면이나 텍스처 창 위에 있는가
+    DirectX::XMFLOAT3 m_probeWorld{ 0.0f, 0.0f, 0.0f };
+    float m_probeValue = 0.0f;
+    int   m_profileRow = -1;                       // 단면 그래프가 읽는 줄
+    int   m_profileColumn = -1;                    // 단면 그래프에 세로선을 그을 칸
+    bool  m_profileFromCursor = false;
+    std::vector<float> m_profile;
+    std::vector<float> m_history;                  // 최대 진폭 기록 (0.1초마다)
+
+    static constexpr int   kViewSize = 256;
+    static constexpr int   kHistorySize = 80;
+    static constexpr float kReadbackInterval = 0.1f;
 
     static constexpr int kShoreSize = 128;
     static constexpr int kShoreRowsPerFrame = 6;

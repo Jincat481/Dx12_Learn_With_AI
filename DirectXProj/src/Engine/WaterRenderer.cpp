@@ -8,6 +8,9 @@
 #include "Engine/GroundRaycast.h"
 #include "Input/InputManager.h"
 #include "Engine/GroundProvider.h"
+#include "Editor/EditorStyle.h"
+
+#include <cstdio>
 
 #include <cmath>
 
@@ -85,10 +88,16 @@ void WaterRenderer::Update()
     //  우클릭은 카메라가, 패널 위 마우스는 UI 가 쓴다.
     const bool pointerFree = !input.IsPointerOverUI() && !input.GetMouseButton(InputManager::Right);
 
-    if (pointerFree && input.GetMouseButton(InputManager::Left))
+    // 진폭 보기 창 위 : 텍스처 칸을 누르면 그 텍셀에, 그래프 칸을 누르면 아무 일도 없다.
+    bool overTexture = false;
+    const bool overPanel = IsInsideAmplitudePanel(input.GetMouseX(), input.GetMouseY(), &overTexture);
+
+    if (pointerFree && input.GetMouseButton(InputManager::Left) && (!overPanel || overTexture))
     {
         XMFLOAT3 hit{};
-        if (PickWaterSurface(input.GetMouseX(), input.GetMouseY(), hit))
+        const bool picked = overTexture ? PickFromAmplitudeView(input.GetMouseX(), input.GetMouseY(), hit)
+                                        : PickWaterSurface(input.GetMouseX(), input.GetMouseY(), hit);
+        if (picked)
         {
             const bool pressed = input.GetMouseButtonDown(InputManager::Left);
             const float dx = hit.x - m_lastDrop.x;
@@ -129,6 +138,342 @@ void WaterRenderer::Update()
     // 너무 밀렸으면(씬 로딩 직후 등) 밀린 시간은 버린다. 한꺼번에 따라잡으면 그 프레임이 멈춘다.
     if (steps == kMaxStepsPerFrame)
         m_stepAccumulator = 0.0f;
+
+    if (m_amplitudeView)
+        UpdateAmplitudeView(deltaTime);
+}
+
+// =============================================================
+// 진폭 보기 (S82)
+// =============================================================
+void WaterRenderer::ToggleAmplitudeView()
+{
+    m_amplitudeView = !m_amplitudeView;
+    if (!m_amplitudeView)
+    {
+        m_hasReadback = false;
+        m_history.clear();
+    }
+}
+
+// 화면 오른쪽 아래에 세로로 쌓는다 : 머리말 / 텍스처 / 숫자 / 단면 그래프 / 기록 그래프
+WaterRenderer::AmplitudeLayout WaterRenderer::ComputeAmplitudeLayout(int viewportWidth, int viewportHeight)
+{
+    constexpr int margin = 12;
+    constexpr int padding = 8;
+    constexpr int header = 22;
+    constexpr int gap = 8;
+    constexpr int textHeight = 4 * 18;
+    constexpr int profileHeight = 90;
+    constexpr int historyHeight = 56;
+
+    const int width = kViewSize + padding * 2;
+    const int height = header + gap + kViewSize + gap + textHeight + gap + profileHeight + gap + historyHeight + gap;
+
+    const int left = viewportWidth - margin - width;
+    const int top = (std::max)(margin, viewportHeight - margin - height);
+
+    AmplitudeLayout layout{};
+    layout.panel = { left, top, left + width, top + height };
+
+    int y = top + header + gap;
+    layout.texture = { left + padding, y, left + padding + kViewSize, y + kViewSize };
+    y += kViewSize + gap;
+    layout.text = { left + padding, y, left + width - padding, y + textHeight };
+    y += textHeight + gap;
+    layout.profile = { left + padding, y, left + width - padding, y + profileHeight };
+    y += profileHeight + gap;
+    layout.history = { left + padding, y, left + width - padding, y + historyHeight };
+    return layout;
+}
+
+bool WaterRenderer::IsInsideAmplitudePanel(int x, int y, bool* insideTexture) const
+{
+    if (insideTexture)
+        *insideTexture = false;
+
+    if (!m_amplitudeView || !m_graphics)
+        return false;
+
+    const AmplitudeLayout layout = ComputeAmplitudeLayout(m_graphics->GetWidth(), m_graphics->GetHeight());
+    auto inside = [x, y](const RECT& r) { return x >= r.left && x < r.right && y >= r.top && y < r.bottom; };
+
+    if (insideTexture)
+        *insideTexture = inside(layout.texture);
+
+    return inside(layout.panel);
+}
+
+// 텍스처 창의 픽셀 → 월드 좌표. 창의 위쪽이 +Z 다.
+bool WaterRenderer::PickFromAmplitudeView(int x, int y, XMFLOAT3& outHit) const
+{
+    bool overTexture = false;
+    if (!IsInsideAmplitudePanel(x, y, &overTexture) || !overTexture)
+        return false;
+
+    const AmplitudeLayout layout = ComputeAmplitudeLayout(m_graphics->GetWidth(), m_graphics->GetHeight());
+    const float u = (x - layout.texture.left + 0.5f) / static_cast<float>(kViewSize);
+    const float v = 1.0f - (y - layout.texture.top + 0.5f) / static_cast<float>(kViewSize);
+
+    const XMFLOAT3 region = m_ripples.GetRegion();
+    outHit = XMFLOAT3(region.x + u * region.z, m_level, region.y + v * region.z);
+    return true;
+}
+
+void WaterRenderer::UpdateAmplitudeView(float deltaTime)
+{
+    ID3D11DeviceContext* context = m_graphics->GetContext();
+
+    // 1) 지난번에 부탁한 복사가 끝났으면 받는다
+    if (m_ripples.PollReadback(context, m_readback, m_readbackRegion))
+    {
+        m_hasReadback = true;
+        AnalyzeReadback(true);
+    }
+
+    // 2) 0.1초마다 새 복사를 부탁한다
+    m_readbackTimer += deltaTime;
+    if (m_readbackTimer >= kReadbackInterval && !m_ripples.IsReadbackPending())
+    {
+        m_ripples.RequestReadback(context);
+        m_readbackTimer = 0.0f;
+    }
+
+    // 3) 커서 : 텍스처 창 위면 그 텍셀, 아니면 수면
+    const InputManager& input = InputManager::Get();
+    m_probeValid = false;
+
+    if (!input.IsPointerOverUI() && !input.GetMouseButton(InputManager::Right))
+    {
+        bool overTexture = false;
+        const bool overPanel = IsInsideAmplitudePanel(input.GetMouseX(), input.GetMouseY(), &overTexture);
+
+        if (overTexture)
+            m_probeValid = PickFromAmplitudeView(input.GetMouseX(), input.GetMouseY(), m_probeWorld);
+        else if (!overPanel)
+            m_probeValid = PickWaterSurface(input.GetMouseX(), input.GetMouseY(), m_probeWorld);
+    }
+
+    if (m_hasReadback)
+        AnalyzeReadback(false);   // 커서가 움직였을 수 있으니 단면과 커서 값을 다시 고른다
+}
+
+// -------------------------------------------------------------
+// 읽어 온 높이에서 숫자를 뽑는다
+//  최대 진폭 : |높이| 의 최댓값과 그 자리
+//  RMS       : sqrt(평균(높이²)) — 물결 전체의 세기. 감쇠로 줄어드는 모습이 잘 보인다
+// -------------------------------------------------------------
+void WaterRenderer::AnalyzeReadback(bool freshData)
+{
+    const int size = m_ripples.GetSize();
+    if (m_readback.size() != static_cast<size_t>(size) * size || size <= 0)
+        return;
+
+    float maxAbs = 0.0f;
+    int maxIndex = 0;
+    double sumSquares = 0.0;
+
+    for (size_t i = 0; i < m_readback.size(); ++i)
+    {
+        const float value = m_readback[i];
+        const float absValue = std::fabs(value);
+        sumSquares += static_cast<double>(value) * value;
+        if (absValue > maxAbs)
+        {
+            maxAbs = absValue;
+            maxIndex = static_cast<int>(i);
+        }
+    }
+
+    m_maxAmplitude = maxAbs;
+    m_maxColumn = maxIndex % size;
+    m_maxRow = maxIndex / size;
+    m_rmsAmplitude = static_cast<float>(std::sqrt(sumSquares / static_cast<double>(m_readback.size())));
+
+    // 기록은 새로 읽어 온 순간에만 쌓는다 (커서 때문에 같은 데이터로 다시 불려도 쌓지 않는다)
+    if (freshData)
+    {
+        m_history.push_back(maxAbs);
+        if (m_history.size() > static_cast<size_t>(kHistorySize))
+            m_history.erase(m_history.begin());
+    }
+
+    // 커서 자리의 텍셀
+    const float texel = m_readbackRegion.z / static_cast<float>(size);
+    int probeColumn = -1;
+    int probeRow = -1;
+
+    if (m_probeValid)
+    {
+        probeColumn = static_cast<int>(std::floor((m_probeWorld.x - m_readbackRegion.x) / texel));
+        probeRow = static_cast<int>(std::floor((m_probeWorld.z - m_readbackRegion.y) / texel));
+        if (probeColumn < 0 || probeRow < 0 || probeColumn >= size || probeRow >= size)
+            probeColumn = probeRow = -1;
+    }
+
+    m_probeValue = (probeRow >= 0) ? m_readback[static_cast<size_t>(probeRow) * size + probeColumn] : 0.0f;
+
+    // 단면 : 커서가 있으면 커서 줄, 없으면 가장 크게 출렁이는 줄
+    m_profileFromCursor = (probeRow >= 0);
+    m_profileRow = m_profileFromCursor ? probeRow : m_maxRow;
+    m_profileColumn = m_profileFromCursor ? probeColumn : m_maxColumn;
+
+    m_profile.assign(m_readback.begin() + static_cast<size_t>(m_profileRow) * size,
+                     m_readback.begin() + static_cast<size_t>(m_profileRow + 1) * size);
+}
+
+namespace
+{
+    void DrawPolyline(HDC hdc, const std::vector<POINT>& points, COLORREF color)
+    {
+        if (points.size() < 2)
+            return;
+
+        HPEN pen = ::CreatePen(PS_SOLID, 1, color);
+        HGDIOBJ old = ::SelectObject(hdc, pen);
+        ::Polyline(hdc, points.data(), static_cast<int>(points.size()));
+        ::SelectObject(hdc, old);
+        ::DeleteObject(pen);
+    }
+
+    void DrawLine(HDC hdc, int x0, int y0, int x1, int y1, COLORREF color)
+    {
+        HPEN pen = ::CreatePen(PS_SOLID, 1, color);
+        HGDIOBJ old = ::SelectObject(hdc, pen);
+        ::MoveToEx(hdc, x0, y0, nullptr);
+        ::LineTo(hdc, x1, y1);
+        ::SelectObject(hdc, old);
+        ::DeleteObject(pen);
+    }
+}
+
+void WaterRenderer::DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewportHeight) const
+{
+    if (!hdc || !m_amplitudeView)
+        return;
+
+    const AmplitudeLayout layout = ComputeAmplitudeLayout(viewportWidth, viewportHeight);
+    const RECT& panel = layout.panel;
+    const RECT& texture = layout.texture;
+
+    // 텍스처 칸은 D3D 가 이미 그렸다. 그 칸을 덮지 않도록 둘레만 칠한다.
+    editor::FillSolid(hdc, { panel.left, panel.top, panel.right, texture.top }, editor::kPanelBackground);
+    editor::FillSolid(hdc, { panel.left, texture.bottom, panel.right, panel.bottom }, editor::kPanelBackground);
+    editor::FillSolid(hdc, { panel.left, texture.top, texture.left, texture.bottom }, editor::kPanelBackground);
+    editor::FillSolid(hdc, { texture.right, texture.top, panel.right, texture.bottom }, editor::kPanelBackground);
+    editor::FillSolid(hdc, { panel.left, panel.top, panel.right, panel.top + 22 }, editor::kHeaderBackground);
+    editor::FrameSolid(hdc, panel, editor::kPanelBorder);
+    editor::FrameSolid(hdc, { texture.left - 1, texture.top - 1, texture.right + 1, texture.bottom + 1 }, editor::kPanelBorder);
+
+    HFONT oldFont = static_cast<HFONT>(::SelectObject(hdc, editor::GetUIFontBold()));
+    const int oldBkMode = ::SetBkMode(hdc, TRANSPARENT);
+
+    wchar_t line[160];
+    _snwprintf_s(line, _countof(line), _TRUNCATE, L"물결 높이 텍스처  %d x %d  (2 로 닫기)",
+                 m_ripples.GetSize(), m_ripples.GetSize());
+    editor::DrawLabel(hdc, panel.left + 8, panel.top + 4, line, editor::kTextNormal);
+
+    ::SelectObject(hdc, editor::GetUIFont());
+
+    const int size = m_ripples.GetSize();
+    const float texel = m_readbackRegion.z / static_cast<float>((std::max)(1, size));
+    const float scale = (std::max)(m_maxAmplitude, 0.05f);   // 그래프 눈금 : 지금 최대 진폭에 맞춘다
+
+    int y = layout.text.top;
+    if (!m_hasReadback)
+    {
+        editor::DrawLabel(hdc, layout.text.left, y, L"값을 읽어 오는 중...", editor::kTextDim);
+    }
+    else
+    {
+        _snwprintf_s(line, _countof(line), _TRUNCATE, L"최대 진폭  %.3f   (x %.0f, z %.0f)", m_maxAmplitude,
+                     m_readbackRegion.x + (m_maxColumn + 0.5f) * texel, m_readbackRegion.y + (m_maxRow + 0.5f) * texel);
+        editor::DrawLabel(hdc, layout.text.left, y, line, editor::kTextSelected);
+        y += 18;
+
+        _snwprintf_s(line, _countof(line), _TRUNCATE, L"RMS (전체 세기)  %.4f", m_rmsAmplitude);
+        editor::DrawLabel(hdc, layout.text.left, y, line, editor::kTextNormal);
+        y += 18;
+
+        if (m_probeValid)
+            _snwprintf_s(line, _countof(line), _TRUNCATE, L"커서 높이  %+.3f   (x %.0f, z %.0f)",
+                         m_probeValue, m_probeWorld.x, m_probeWorld.z);
+        else
+            _snwprintf_s(line, _countof(line), _TRUNCATE, L"커서 높이  -   (수면이나 텍스처 위에 올리기)");
+        editor::DrawLabel(hdc, layout.text.left, y, line, editor::kTextNormal);
+        y += 18;
+
+        _snwprintf_s(line, _countof(line), _TRUNCATE, L"단면 : %s 줄   눈금 ±%.3f",
+                     m_profileFromCursor ? L"커서" : L"최대 진폭", scale);
+        editor::DrawLabel(hdc, layout.text.left, y, line, editor::kTextDim);
+    }
+
+    // ---- 단면 그래프 : 한 줄의 높이를 파형으로 ----
+    const RECT& profile = layout.profile;
+    editor::FillSolid(hdc, profile, editor::kFieldBackground);
+    editor::FrameSolid(hdc, profile, editor::kFieldBorder);
+
+    const int profileMid = (profile.top + profile.bottom) / 2;
+    const int profileHalf = (profile.bottom - profile.top) / 2 - 3;
+    DrawLine(hdc, profile.left + 1, profileMid, profile.right - 1, profileMid, RGB(80, 80, 80));
+
+    if (m_hasReadback && m_profile.size() == static_cast<size_t>(size))
+    {
+        const int width = profile.right - profile.left - 2;
+        std::vector<POINT> points;
+        points.reserve(static_cast<size_t>(width));
+
+        for (int px = 0; px < width; ++px)
+        {
+            // 픽셀 하나에 텍셀 두 개가 들어간다. 봉우리를 놓치지 않도록 절댓값이 큰 쪽을 쓴다.
+            const int begin = px * size / width;
+            const int end = (std::max)(begin + 1, (px + 1) * size / width);
+            float value = 0.0f;
+            for (int i = begin; i < end && i < size; ++i)
+                if (std::fabs(m_profile[static_cast<size_t>(i)]) > std::fabs(value))
+                    value = m_profile[static_cast<size_t>(i)];
+
+            const float t = (std::max)(-1.0f, (std::min)(1.0f, value / scale));
+            points.push_back({ profile.left + 1 + px, profileMid - static_cast<LONG>(t * profileHalf) });
+        }
+        DrawPolyline(hdc, points, RGB(120, 200, 255));
+
+        if (m_profileColumn >= 0)
+        {
+            const int markerX = profile.left + 1 + m_profileColumn * width / size;
+            DrawLine(hdc, markerX, profile.top + 1, markerX, profile.bottom - 1, RGB(255, 220, 60));
+        }
+    }
+
+    // ---- 기록 그래프 : 최대 진폭이 시간에 따라 줄어드는 모습 (감쇠) ----
+    const RECT& history = layout.history;
+    editor::FillSolid(hdc, history, editor::kFieldBackground);
+    editor::FrameSolid(hdc, history, editor::kFieldBorder);
+    editor::DrawLabel(hdc, history.left + 4, history.top + 2, L"최대 진폭 기록 (최근 8초)", editor::kTextDim);
+
+    if (m_history.size() >= 2)
+    {
+        float historyMax = 0.05f;
+        for (float value : m_history)
+            historyMax = (std::max)(historyMax, value);
+
+        const int width = history.right - history.left - 2;
+        const int bottom = history.bottom - 3;
+        const int graphHeight = history.bottom - history.top - 22;
+
+        std::vector<POINT> points;
+        points.reserve(m_history.size());
+        for (size_t i = 0; i < m_history.size(); ++i)
+        {
+            const int x = history.left + 1 + static_cast<int>(i) * width / (kHistorySize - 1);
+            const int yValue = bottom - static_cast<int>(m_history[i] / historyMax * graphHeight);
+            points.push_back({ x, yValue });
+        }
+        DrawPolyline(hdc, points, RGB(255, 140, 90));
+    }
+
+    ::SetBkMode(hdc, oldBkMode);
+    ::SelectObject(hdc, oldFont);
 }
 
 // -------------------------------------------------------------
@@ -306,6 +651,39 @@ void WaterRenderer::RenderTransparent()
     }
 
     m_graphics->DrawWater(m_plane, world, params);
+
+    // 진폭 보기 : 시뮬레이션 텍스처를 화면 창에 그대로 그린다 (S82)
+    if (m_amplitudeView && m_ripples.IsValid())
+    {
+        const AmplitudeLayout layout = ComputeAmplitudeLayout(m_graphics->GetWidth(), m_graphics->GetHeight());
+        const XMFLOAT3 region = m_ripples.GetRegion();
+
+        Graphics::RippleViewParams view;
+        view.height = m_ripples.GetHeightSRV();
+        view.region = XMFLOAT4(region.x, region.y, region.z, 1.0f);
+        view.amplitudeScale = (std::max)(m_maxAmplitude, 0.05f);
+        view.x = layout.texture.left;
+        view.y = layout.texture.top;
+        view.size = kViewSize;
+
+        if (m_hasShore && m_shoreView)
+        {
+            view.shore = m_shoreView.Get();
+            view.shoreRegion = XMFLOAT4(m_shoreRegion.x, m_shoreRegion.y, m_shoreRegion.z, 1.0f);
+        }
+
+        // 표시 점과 단면 줄 : 읽어 온 시점의 텍셀을 월드로, 다시 지금 영역의 UV 로
+        if (m_hasReadback && m_profileRow >= 0 && region.z > 0.0f)
+        {
+            const float texel = m_readbackRegion.z / static_cast<float>(m_ripples.GetSize());
+            const float worldX = m_readbackRegion.x + (m_profileColumn + 0.5f) * texel;
+            const float worldZ = m_readbackRegion.y + (m_profileRow + 0.5f) * texel;
+            view.marker = XMFLOAT4((worldX - region.x) / region.z, (worldZ - region.y) / region.z,
+                                   (worldZ - region.y) / region.z, 1.0f);
+        }
+
+        m_graphics->DrawRippleView(view);
+    }
 }
 
 void WaterRenderer::ToJson(json::Value& out) const
