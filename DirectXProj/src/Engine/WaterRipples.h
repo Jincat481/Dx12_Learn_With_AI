@@ -85,8 +85,10 @@ private:
     float m_texelSize = 0.75f;
     float m_damping = 0.992f;
 
-    int  m_originTexelX = 0;
+    int  m_originTexelX = 0;       // "현재" 텍스처가 쓰일 때의 영역 원점
     int  m_originTexelZ = 0;
+    int  m_previousOriginX = 0;    // "이전" 텍스처가 쓰일 때의 영역 원점
+    int  m_previousOriginZ = 0;
     bool m_hasOrigin = false;
 
     std::vector<Drop> m_drops;

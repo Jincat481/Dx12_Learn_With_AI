@@ -21,11 +21,18 @@
 
 cbuffer RippleConstants : register(b0)
 {
-    int2   gShift;       // 영역이 카메라를 따라 옮겨졌을 때, 이전 결과를 읽을 텍셀 오프셋
+    int2   gShift;       // "현재" 텍스처를 읽을 텍셀 오프셋 (지금 영역 원점 - 현재 텍스처가 쓰일 때의 원점)
     float  gDamping;     // 한 단계마다 곱하는 감쇠
     uint   gDropCount;   // 이번 단계에 떨어뜨릴 물방울 수 (최대 4)
     float4 gDrops[4];    // xy : 텍셀 좌표   z : 반경(텍셀)   w : 세기
     float4 gShore;       // 텍셀 → 해안 마스크 UV : uv = (텍셀 + 0.5) · x + (y, z)   w : 사용 여부
+
+    // "이전" 텍스처를 읽을 텍셀 오프셋 (S88)
+    //  이전 텍스처는 현재 텍스처보다 한 단계 더 옛날 원점에서 쓰였다. 영역이 방금 옮겨졌다면
+    //  두 텍스처의 원점이 서로 다르므로 오프셋도 따로 줘야 한다. 같은 오프셋으로 읽으면 두 장이
+    //  16 텍셀 어긋나 "현재 - 이전" 이 엉뚱한 속도가 되고, 옮길 때마다 에너지가 생겨 폭주한다.
+    int2   gShiftPrevious;
+    float2 gShiftPadding;
 };
 
 Texture2D<float> gPrevious  : register(t0);   // h(t - 1)
@@ -92,7 +99,7 @@ float PSMain(FullscreenVertex input) : SV_TARGET
                       LoadHeight(gCurrent, p + int2( 0,  1)) +
                       LoadHeight(gCurrent, p + int2( 0, -1));
 
-    float next = neighbors * 0.5f - LoadHeight(gPrevious, p);
+    float next = neighbors * 0.5f - LoadHeight(gPrevious, texel + gShiftPrevious);
     next *= gDamping;
 
     // 격자 잡음 감쇠 (S88)

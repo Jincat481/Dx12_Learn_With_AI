@@ -19,6 +19,9 @@ namespace
         uint32_t dropCount;
         float    drops[16];
         float    shore[4];
+        int32_t  shiftPreviousX;
+        int32_t  shiftPreviousZ;
+        float    shiftPadding[2];
     };
 }
 
@@ -249,6 +252,20 @@ void WaterRipples::Step(ID3D11DeviceContext* context, float centerX, float cente
 
     int shiftX = 0;
     int shiftZ = 0;
+    int shiftPreviousX = 0;
+    int shiftPreviousZ = 0;
+    if (!m_hasOrigin)
+    {
+        m_previousOriginX = wantX;
+        m_previousOriginZ = wantZ;
+    }
+    else
+    {
+        // 이전 텍스처는 현재 텍스처보다 한 단계 더 옛날 원점에서 쓰였다
+        shiftPreviousX = wantX - m_previousOriginX;
+        shiftPreviousZ = wantZ - m_previousOriginZ;
+    }
+
     if (m_hasOrigin)
     {
         // 원점이 +n 텍셀 옮겨졌다면, 새 텍셀 i 는 예전 텍셀 i + n 과 같은 월드 위치다.
@@ -256,6 +273,9 @@ void WaterRipples::Step(ID3D11DeviceContext* context, float centerX, float cente
         shiftZ = wantZ - m_originTexelZ;
     }
 
+    // 이번 단계가 끝나면 지금 "현재" 텍스처가 "이전" 이 되고, 새로 쓴 텍스처가 지금 원점을 갖는다
+    m_previousOriginX = m_hasOrigin ? m_originTexelX : wantX;
+    m_previousOriginZ = m_hasOrigin ? m_originTexelZ : wantZ;
     m_originTexelX = wantX;
     m_originTexelZ = wantZ;
     m_hasOrigin = true;
@@ -268,6 +288,9 @@ void WaterRipples::Step(ID3D11DeviceContext* context, float centerX, float cente
     RippleConstants* cb = static_cast<RippleConstants*>(mapped.pData);
     cb->shiftX = shiftX;
     cb->shiftZ = shiftZ;
+    cb->shiftPreviousX = shiftPreviousX;
+    cb->shiftPreviousZ = shiftPreviousZ;
+    cb->shiftPadding[0] = cb->shiftPadding[1] = 0.0f;
     cb->damping = m_damping;
 
     const int dropCount = (std::min)(kMaxDropsPerStep, static_cast<int>(m_drops.size()));
