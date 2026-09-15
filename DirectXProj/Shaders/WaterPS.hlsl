@@ -117,8 +117,14 @@ float4 main(WaterPixel input) : SV_TARGET
     float2 slope = slopeSum.xy + RippleSlope(xz, rippleHeight);
 
     // 게르스트너로 점들이 마루에 몰리면 같은 높이 차가 더 짧은 거리에서 일어난다 → 기울기를 늘여 준다
-    float2 stretch = max(1.0f + slopeSum.zw, 0.25f);
-    float3 normal = normalize(float3(-slope.x / stretch.x, 1.0f, -slope.y / stretch.y));
+    //  단, 마루에서 늘어남이 0 에 가까워지면 기울기가 몇 배로 튀어 법선이 거의 눕는다.
+    //  그러면 프레넬이 1 로 치솟아 하늘(구름)이 그 자리에만 통째로 비쳐 회색 얼룩이 생긴다.
+    //  늘어남에 하한을 두고, 기울기는 실제 바다 파도의 최대 경사(약 30도, tan ≈ 0.6) 근처에서 자른다.
+    float2 stretch = max(1.0f + slopeSum.zw, 0.7f);
+    slope /= stretch;
+    float slopeLength = length(slope);
+    slope *= min(1.0f, 0.6f / max(slopeLength, 1e-4f));
+    float3 normal = normalize(float3(-slope.x, 1.0f, -slope.y));
 
     // 800 m 타일은 텍셀 하나가 3 m 라 거품이 흐릿한 회색 덩어리가 된다. 거품은 촘촘한 두 타일에서만 읽는다.
     float foamAmount = (gDisplacement1.Sample(gWrap, xz / gOcean.y).w * fade1 +
@@ -178,7 +184,11 @@ float4 main(WaterPixel input) : SV_TARGET
     reflection = lerp(body, reflection, saturate(reflected.y * 4.0f + 0.25f));
 
     // ---- 프레넬 (Schlick) : 물의 수직 반사율 2% ----
-    float fresnel = 0.02f + 0.98f * pow(1.0f - NdotV, 5.0f);
+    //  프레넬은 거리에 따라 평평해지는 법선으로 계산한다. 픽셀 하나에 파도 여러 개가 들어가는 먼 곳에서
+    //  한 픽셀의 법선으로 반사율을 정하면, 우연히 누운 픽셀만 하늘을 통째로 비춰 반짝이는 얼룩이 된다.
+    float3 fresnelNormal = normalize(lerp(normal, float3(0.0f, 1.0f, 0.0f), 0.5f));
+    float fresnelView = saturate(dot(fresnelNormal, viewDir));
+    float fresnel = 0.02f + 0.98f * pow(1.0f - fresnelView, 5.0f);
     float3 color = lerp(refraction, reflection, fresnel);
 
     // ---- 햇빛 반사광 ----

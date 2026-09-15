@@ -103,7 +103,7 @@ void WaterRenderer::Update()
 
             if (pressed || !m_dragging || dx * dx + dz * dz > 1.5f)
             {
-                m_ripples.AddDrop(hit.x, hit.z, pressed ? 3.0f : 1.6f, pressed ? 3.0f : 0.9f);
+                m_ripples.AddDrop(hit.x, hit.z, pressed ? 2.5f : 1.4f, pressed ? 2.2f : 0.5f);
                 m_lastDrop = hit;
                 m_dragging = true;
             }
@@ -606,7 +606,7 @@ void WaterRenderer::AddRainDrops()
 
     std::uniform_real_distribution<float> offset(-150.0f, 150.0f);
     std::uniform_real_distribution<float> radius(0.6f, 1.1f);
-    std::uniform_real_distribution<float> strength(0.2f, 0.5f);
+    std::uniform_real_distribution<float> strength(0.04f, 0.12f);   // 초당 120방울이 쌓이므로 하나하나는 약해야 한다
 
     for (int i = 0; i < 2; ++i)
         m_ripples.AddDrop(eye.x + offset(m_rng), eye.z + offset(m_rng), radius(m_rng), strength(m_rng));

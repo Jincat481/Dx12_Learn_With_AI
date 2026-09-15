@@ -95,6 +95,14 @@ float PSMain(FullscreenVertex input) : SV_TARGET
     float next = neighbors * 0.5f - LoadHeight(gPrevious, p);
     next *= gDamping;
 
+    // 격자 잡음 감쇠 (S88)
+    //  이 차분식은 텍셀마다 +/- 가 번갈아 뒤집히는 체크무늬(격자로 표현할 수 있는 가장 짧은 파장)를 거의 줄이지 못한다.
+    //  세게 누르거나 빗방울이 쌓이면 그 무늬가 자라 상한(±8)에 걸리고, 수면에 체크무늬 얼룩이 생긴다.
+    //  이웃 평균 쪽으로 조금 당기면 긴 물결은 거의 그대로이고 체크무늬만 빠르게 사라진다.
+    //  (체크무늬는 이웃 평균이 자기 값의 정반대라 당기는 힘이 가장 크다)
+    float neighborAverage = neighbors * 0.25f;
+    next = lerp(next, neighborAverage, 0.02f);
+
     // 물방울 : 가우스 모양으로 수면을 눌러 준다. 눌린 자리가 되튀며 동심원이 퍼져 나간다.
     for (uint i = 0; i < gDropCount; ++i)
     {
@@ -104,5 +112,5 @@ float PSMain(FullscreenVertex input) : SV_TARGET
     }
 
     // 안전장치 : 너무 세게 연달아 누르면 값이 커질 수 있다.
-    return clamp(next, -8.0f, 8.0f);
+    return clamp(next, -4.0f, 4.0f);
 }
