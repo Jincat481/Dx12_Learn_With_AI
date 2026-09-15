@@ -119,6 +119,7 @@ private:
 
     // 해안 높이 맵 (S81, S84) : 물결 영역을 128 x 128 로 나눠 "땅 높이 - 수위" 를 적는다. 양수면 땅(벽).
     //  한 번에 다 구하면 수천 번의 지면 질의로 프레임이 멈추므로 몇 줄씩 나눠 굽는다.
+    //  다 구운 값은 GPU(수면 잠재우기)와 파동 입자(해안 반사, S89)가 함께 쓴다.
     ComPtr<ID3D11Texture2D>          m_shoreTexture;
     ComPtr<ID3D11ShaderResourceView> m_shoreView;
     std::vector<float>               m_shoreBuilding;   // 땅 높이 - 수위 (양수 땅, 음수 물 깊이)
@@ -156,7 +157,7 @@ private:
     static constexpr int kShoreSize = 128;
     static constexpr int kShoreRowsPerFrame = 6;
 
-    // 파동 방정식은 한 단계의 시간 간격이 일정해야 퍼지는 속도가 일정하다. 프레임과 무관하게 초당 60 단계.
+    // 입자는 한 단계에 일정 거리를 움직이고 부딪힘도 단계 단위로 깎는다. 프레임과 무관하게 초당 60 단계.
     static constexpr float kStepSeconds = 1.0f / 60.0f;
     static constexpr int   kMaxStepsPerFrame = 4;
 

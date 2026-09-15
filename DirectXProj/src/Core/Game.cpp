@@ -590,7 +590,7 @@ void Game::SetupShowcaseList()
 
     m_showcases.push_back({
         L"터레인 · 바다",
-        L"바람 스펙트럼 파도 · 게르스트너 · 흰 파도머리 · 반사 · 클릭 물결 (S76~S87)",
+        L"바람 스펙트럼 파도 · 게르스트너 · 흰 파도머리 · 반사 · 부딪히는 클릭 물결 (S76~S89)",
         [this]() { BuildChunkedTerrainScene(ChunkedMode::Water, "Terrain_Water"); } });
 
     m_showcases.push_back({

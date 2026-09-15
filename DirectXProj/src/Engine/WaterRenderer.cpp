@@ -127,7 +127,7 @@ void WaterRenderer::Update()
             AddRainDrops();
 
         const XMFLOAT3 eye = m_graphics->GetEyePosition3D();
-        m_ripples.Step(m_graphics->GetContext(), eye.x, eye.z);
+        m_ripples.Step(eye.x, eye.z);
 
         m_stepAccumulator -= kStepSeconds;
         ++steps;
@@ -136,6 +136,10 @@ void WaterRenderer::Update()
     // 너무 밀렸으면(씬 로딩 직후 등) 밀린 시간은 버린다. 한꺼번에 따라잡으면 그 프레임이 멈춘다.
     if (steps == kMaxStepsPerFrame)
         m_stepAccumulator = 0.0f;
+
+    // 파동 입자를 높이 텍스처에 그린다 (S89). 여러 단계를 돌았어도 마지막 상태만 그리면 된다
+    if (steps > 0)
+        m_ripples.Render(m_graphics->GetContext());
 
     if (m_amplitudeView)
         UpdateAmplitudeView(deltaTime);
@@ -161,7 +165,7 @@ WaterRenderer::AmplitudeLayout WaterRenderer::ComputeAmplitudeLayout(int viewpor
     constexpr int padding = 8;
     constexpr int header = 22;
     constexpr int gap = 8;
-    constexpr int textHeight = 4 * 18;
+    constexpr int textHeight = 5 * 18;
     constexpr int profileHeight = 90;
     constexpr int historyHeight = 56;
 
@@ -404,6 +408,13 @@ void WaterRenderer::DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewpor
         _snwprintf_s(line, _countof(line), _TRUNCATE, L"단면 : %s 줄   눈금 ±%.3f",
                      m_profileFromCursor ? L"커서" : L"최대 진폭", scale);
         editor::DrawLabel(hdc, layout.text.left, y, line, editor::kTextDim);
+        y += 18;
+
+        // 파동 입자 (S89) : 마주 오는 물결과 부딪혀 이번 단계에 힘이 깎인 입자 수
+        _snwprintf_s(line, _countof(line), _TRUNCATE, L"파동 입자  %d 개   부딪혀 깎이는 중  %d 개",
+                     m_ripples.GetParticleCount(), m_ripples.GetCollidingCount());
+        editor::DrawLabel(hdc, layout.text.left, y, line,
+                          m_ripples.GetCollidingCount() > 0 ? editor::kTextSelected : editor::kTextDim);
 
     }
 
@@ -595,7 +606,7 @@ void WaterRenderer::UpdateShoreMask()
         m_hasShore = true;
         m_shoreRow = -1;
 
-        m_ripples.SetShoreMask(m_shoreView.Get(), m_shoreRegion);
+        m_ripples.SetShore(m_shoreBuilding, kShoreSize, m_shoreRegion);
     }
 }
 
