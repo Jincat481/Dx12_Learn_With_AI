@@ -24,6 +24,13 @@ public:
 
     void SetTitle(const std::wstring& title);
 
+    // 창 크기가 바뀌면 부른다 (클라이언트 영역의 새 크기). Graphics 가 백버퍼를 다시 만든다.
+    void SetResizeHandler(std::function<void(int, int)> handler) { m_onResize = std::move(handler); }
+
+    // 테두리 없는 전체 화면 (F11). 독점 모드가 아니라 모니터를 덮는 창이라 Alt+Tab 이 자연스럽다.
+    void ToggleFullscreen();
+    bool IsFullscreen() const { return m_fullscreen; }
+
 private:
     static LRESULT CALLBACK WndProcSetup(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK WndProcThunk(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -34,5 +41,15 @@ private:
     int       m_width = 0;
     int       m_height = 0;
 
+    std::function<void(int, int)> m_onResize;
+
+    bool            m_fullscreen = false;
+    DWORD           m_savedStyle = 0;
+    WINDOWPLACEMENT m_savedPlacement{ sizeof(WINDOWPLACEMENT) };   // 전체 화면 전의 위치 · 크기
+
     static constexpr const wchar_t* kClassName = L"DirectXProjWindowClass";
+
+    // 너무 작게 줄이면 조작 패널이 화면을 덮고 종횡비가 극단적으로 찌그러진다
+    static constexpr int kMinClientWidth = 960;
+    static constexpr int kMinClientHeight = 600;
 };

@@ -110,6 +110,62 @@ void Graphics::Shutdown()
     m_device.Reset();
 }
 
+// =============================================================
+// 창 크기 변경 (S91)
+//  스왑체인의 백버퍼는 창과 같은 크기여야 한다. 바꾸려면
+//   1) 백버퍼를 가리키는 것을 하나도 남김없이 놓고 (렌더 타깃 뷰 · GDI 표면 · 출력 바인딩)
+//   2) ResizeBuffers 로 다시 잡은 뒤
+//   3) 화면 크기로 만든 텍스처(깊이 버퍼, 반사 패스, 화면 색 · 깊이 복사본)를 새 크기로 다시 만든다.
+//  하나라도 남아 있으면 ResizeBuffers 가 실패한다.
+// =============================================================
+bool Graphics::Resize(int width, int height)
+{
+    if (!m_swapChain || !m_context || !m_device)
+        return false;
+
+    width = (std::max)(1, width);
+    height = (std::max)(1, height);
+    if (width == m_width && height == m_height)
+        return true;
+
+    m_context->OMSetRenderTargets(0, nullptr, nullptr);
+
+    // 백버퍼를 참조하는 것들
+    m_renderTargetView.Reset();
+    m_backBufferSurface.Reset();
+
+    // 화면 크기로 만든 것들
+    m_depthStencilView.Reset();
+    m_depthStencilTexture.Reset();
+    m_reflectionSRV.Reset();
+    m_reflectionRTV.Reset();
+    m_reflectionTexture.Reset();
+    m_reflectionDSV.Reset();
+    m_reflectionDepth.Reset();
+    m_sceneColorSRV.Reset();
+    m_sceneColorCopy.Reset();
+    m_sceneDepthSRV.Reset();
+    m_sceneDepthCopy.Reset();
+    m_context->Flush();
+
+    m_width = width;
+    m_height = height;
+
+    if (DX_FAILED(m_swapChain->ResizeBuffers(0, static_cast<UINT>(width), static_cast<UINT>(height),
+                                             DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE),
+                  L"IDXGISwapChain::ResizeBuffers"))
+        return false;
+
+    if (!CreateRenderTargetView() || !CreateDepthBuffer() || !CreatePassTargets())
+    {
+        dxutil::DebugLog(L"[Graphics] 창 크기 변경 후 렌더 타깃을 다시 만들지 못했다");
+        return false;
+    }
+
+    m_sceneCaptured = false;
+    return true;
+}
+
 bool Graphics::CreateDeviceAndSwapChain(HWND hwnd)
 {
     DXGI_SWAP_CHAIN_DESC desc = {};

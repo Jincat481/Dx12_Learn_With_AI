@@ -37,7 +37,8 @@ bool Window::Create(HINSTANCE hInstance, const std::wstring& title, int width, i
     }
 
     // 클라이언트 영역이 정확히 width x height 가 되도록 창 크기를 보정한다.
-    const DWORD style = WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+    //  테두리를 끌어 크기를 바꿀 수 있고(WS_THICKFRAME) 최대화 단추도 있다(WS_MAXIMIZEBOX).
+    const DWORD style = WS_OVERLAPPEDWINDOW;
     RECT rect = { 0, 0, width, height };
     ::AdjustWindowRect(&rect, style, FALSE);
 
@@ -114,12 +115,77 @@ LRESULT CALLBACK Window::WndProcThunk(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     return self->HandleMessage(hwnd, msg, wParam, lParam);
 }
 
+void Window::ToggleFullscreen()
+{
+    if (!m_hwnd)
+        return;
+
+    if (!m_fullscreen)
+    {
+        // 돌아올 자리를 적어 두고, 테두리를 떼고 모니터를 가득 채운다
+        m_savedPlacement.length = sizeof(WINDOWPLACEMENT);
+        ::GetWindowPlacement(m_hwnd, &m_savedPlacement);
+        m_savedStyle = static_cast<DWORD>(::GetWindowLongPtrW(m_hwnd, GWL_STYLE));
+
+        MONITORINFO monitor = { sizeof(MONITORINFO) };
+        if (!::GetMonitorInfoW(::MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST), &monitor))
+            return;
+
+        ::SetWindowLongPtrW(m_hwnd, GWL_STYLE, (m_savedStyle & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+        ::SetWindowPos(m_hwnd, HWND_TOP,
+                       monitor.rcMonitor.left, monitor.rcMonitor.top,
+                       monitor.rcMonitor.right - monitor.rcMonitor.left,
+                       monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+                       SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        m_fullscreen = true;
+    }
+    else
+    {
+        ::SetWindowLongPtrW(m_hwnd, GWL_STYLE, m_savedStyle);
+        ::SetWindowPlacement(m_hwnd, &m_savedPlacement);
+        ::SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        m_fullscreen = false;
+    }
+}
+
 LRESULT Window::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     InputManager& input = InputManager::Get();
 
     switch (msg)
     {
+    // ---- 크기 변경 ----
+    //  테두리를 끄는 동안에도 계속 날아온다. 최소화(크기 0)는 건너뛴다.
+    case WM_SIZE:
+    {
+        const int width = static_cast<int>(LOWORD(lParam));
+        const int height = static_cast<int>(HIWORD(lParam));
+
+        if (wParam != SIZE_MINIMIZED && width > 0 && height > 0 &&
+            (width != m_width || height != m_height))
+        {
+            m_width = width;
+            m_height = height;
+
+            if (m_onResize)
+                m_onResize(width, height);
+        }
+        return 0;
+    }
+
+    // 창이 너무 작아지지 않게 한다 (클라이언트 기준으로 정하고 테두리만큼 늘린다)
+    case WM_GETMINMAXINFO:
+    {
+        RECT rect = { 0, 0, kMinClientWidth, kMinClientHeight };
+        ::AdjustWindowRect(&rect, static_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE);
+
+        MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lParam);
+        info->ptMinTrackSize.x = rect.right - rect.left;
+        info->ptMinTrackSize.y = rect.bottom - rect.top;
+        return 0;
+    }
+
     case WM_CLOSE:
         ::PostQuitMessage(0);
         return 0;

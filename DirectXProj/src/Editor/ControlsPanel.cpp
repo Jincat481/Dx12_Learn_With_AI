@@ -52,8 +52,11 @@ void ControlsPanel::Draw(HDC hdc, int viewportWidth, int viewportHeight)
                             static_cast<int>(m_lines.size()) * kRowHeight + kPadding;
 
     const int left = kMargin;
-    const int bottom = viewportHeight - kMargin;
-    const int top = bottom - panelHeight;
+
+    // 창을 낮게 줄이면 패널이 화면 위로 넘쳐 제목과 첫 줄이 잘린다.
+    //  다 들어가지 않을 때는 위쪽에 붙여 앞줄부터 보이게 한다. (S91)
+    const int top = (std::max)(kMargin, viewportHeight - kMargin - panelHeight);
+    const int bottom = top + panelHeight;
     const int right = left + panelWidth;
 
     RECT panelRect = { left, top, right, bottom };

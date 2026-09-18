@@ -62,6 +62,13 @@ bool Game::Initialize(HINSTANCE hInstance, int width, int height)
 
     // 2) 그래픽
     m_graphics = std::make_unique<Graphics>();
+    // 창 크기가 바뀌면 백버퍼도 따라가야 한다 (S91)
+    m_window->SetResizeHandler([this](int newWidth, int newHeight)
+    {
+        if (m_graphics)
+            m_graphics->Resize(newWidth, newHeight);
+    });
+
     if (!m_graphics->Initialize(m_window->GetHandle(), width, height))
     {
         ::MessageBoxW(m_window->GetHandle(),
@@ -1031,6 +1038,7 @@ void Game::UpdateControlsPanel()
     }
 
     lines.push_back({ L"H / I", L"패널 켜기/끄기", L"", false });
+    lines.push_back({ L"F11", L"전체 화면", m_window && m_window->IsFullscreen() ? L"켬" : L"끔", true });
     lines.push_back({ L"F5 / F9", L"씬 저장 / 불러오기", L"", false });
     lines.push_back({ L"ESC", L"메뉴로 돌아가기", L"", false });
 
@@ -1242,6 +1250,10 @@ void Game::HandleFrameEndCommands()
             RequestScene(kMenuScene);
         return;
     }
+
+    // F11 : 테두리 없는 전체 화면 (어느 씬에서나)
+    if (input.GetKeyDown(VK_F11))
+        m_window->ToggleFullscreen();
 
     if (!m_showEditorPanels)
         return;    // 아래는 쇼케이스 전용

@@ -46,6 +46,10 @@ public:
     //  Camera 컴포넌트가 Update 에서 넣어 준 행렬을 Render 단계에서 쓴다.
     void SetCamera3D(DirectX::FXMMATRIX view, DirectX::CXMMATRIX projection, const DirectX::XMFLOAT3& eyePosition);
 
+    // ---- 창 크기 변경 (S91) ----
+    //  백버퍼 · 깊이 버퍼 · 화면 크기로 만든 패스 텍스처(반사, 화면 색 · 깊이 복사본)를 모두 다시 만든다.
+    bool Resize(int width, int height);
+
     // 3D 메시를 그릴 때 셰이더로 넘길 값들
     struct MeshDrawParams
     {
