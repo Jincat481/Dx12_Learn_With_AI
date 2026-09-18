@@ -610,6 +610,13 @@ void WaterRenderer::UpdateShoreMask()
     }
 }
 
+// 폭포가 수면을 때리는 자리 (S90)
+void WaterRenderer::AddSplash(float worldX, float worldZ, float radius, float strength)
+{
+    if (m_ripples.IsValid())
+        m_ripples.AddDrop(worldX, worldZ, radius, strength);
+}
+
 // 빗방울 : 카메라 주변에 작고 약한 물방울을 무작위로 떨어뜨린다.
 void WaterRenderer::AddRainDrops()
 {

@@ -78,6 +78,9 @@ public:
     // GDI 오버레이 단계에서 Game 이 부른다. (텍스처 창은 RenderTransparent 에서 D3D 로 먼저 그린다)
     void DrawAmplitudeOverlay(HDC hdc, int viewportWidth, int viewportHeight) const;
 
+    // 폭포처럼 밖에서 수면을 때릴 때 물결을 일으킨다 (S90)
+    void AddSplash(float worldX, float worldZ, float radius, float strength);
+
     // 해안 마스크를 굽는 중인가 (S81)
     bool IsBuildingShore() const { return m_shoreRow >= 0; }
     bool HasShore() const { return m_hasShore; }

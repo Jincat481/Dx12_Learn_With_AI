@@ -18,6 +18,7 @@
 #include "Terrain/ChunkedTerrainRenderer.h"
 #include "Engine/SkyRenderer.h"
 #include "Engine/WaterRenderer.h"
+#include "Engine/WaterfallRenderer.h"
 #include "Terrain/TessellatedTerrainRenderer.h"
 #include "Terrain/TerrainBrush.h"
 #include "Terrain/TerrainErosion.h"
@@ -117,6 +118,7 @@ void Game::RegisterComponentTypes()
     factory.Register<TerrainBrush>("TerrainBrush");
     factory.Register<TerrainErosion>("TerrainErosion");
     factory.Register<WaterRenderer>("WaterRenderer");
+    factory.Register<WaterfallRenderer>("WaterfallRenderer");
     factory.Register<MenuController>("MenuController");
 }
 
@@ -317,6 +319,12 @@ void Game::BuildChunkedTerrainScene(ChunkedMode mode, const std::string& sceneNa
         GameObject* waterObject = scene->CreateGameObject("Water");
         WaterRenderer* water = waterObject->AddComponent<WaterRenderer>();
         water->SetWaterLevel(6.0f);
+
+        // 폭포 (S90) : 섬 비탈에서 바다로 떨어지는 물줄기. 자리는 지형을 훑어 스스로 찾는다.
+        GameObject* waterfallObject = scene->CreateGameObject("Waterfall");
+        WaterfallRenderer* waterfall = waterfallObject->AddComponent<WaterfallRenderer>();
+        waterfall->SetWaterLevel(6.0f);
+        waterfall->SetSearchArea(0.0f, -60.0f, 260.0f);
         break;
     }
     }
@@ -781,6 +789,7 @@ void Game::UpdateControlsPanel()
     SkyRenderer* sky = nullptr;
     Camera* camera = nullptr;
     WaterRenderer* water = nullptr;
+    WaterfallRenderer* waterfall = nullptr;
     for (const auto& object : scene->GetGameObjects())
     {
         if (!object || object->IsPendingDestroy())
@@ -788,6 +797,7 @@ void Game::UpdateControlsPanel()
         if (!sky)    sky = object->GetComponent<SkyRenderer>();
         if (!camera) camera = object->GetComponent<Camera>();
         if (!water)  water = object->GetComponent<WaterRenderer>();
+        if (!waterfall) waterfall = object->GetComponent<WaterfallRenderer>();
     }
 
     auto onOff = [](bool on) { return on ? L"켬" : L"끔"; };
@@ -992,6 +1002,22 @@ void Game::UpdateControlsPanel()
         lines.push_back({ L"1", L"물결 높이 보기", onOff(water->IsRippleDebugEnabled()), true });
         lines.push_back({ L"2", L"진폭 보기 (텍스처)", onOff(water->IsAmplitudeViewEnabled()), true });
         lines.push_back({ L"", L"해안 반사", water->IsBuildingShore() ? L"굽는 중" : (water->HasShore() ? L"켬" : L"-"), true });
+    }
+
+    // 폭포 (S90)
+    if (waterfall)
+    {
+        wchar_t drop[96];
+        if (waterfall->HasPath())
+            _snwprintf_s(drop, _countof(drop), _TRUNCATE, L"낙차 %.0f m (공중 %.0f m) · 길이 %.0f m",
+                         waterfall->GetDropHeight(), waterfall->GetFallHeight(), waterfall->GetPathLength());
+        else
+            _snwprintf_s(drop, _countof(drop), _TRUNCATE, L"물길을 찾는 중...");
+
+        lines.push_back({ L"5", L"폭포", onOff(waterfall->IsEnabled()), true });
+        lines.push_back({ L"6", L"폭포 공중 구간 색", onOff(waterfall->IsDebugEnabled()), true });
+        lines.push_back({ L"7", L"다른 폭포 자리", drop, true });
+        lines.push_back({ L"8", L"폭포 앞으로 가기", L"", false });
     }
 
     // 카메라가 있는 씬 : 이동 방식
@@ -1352,6 +1378,43 @@ void Game::HandleFrameEndCommands()
             }
             if (input.GetKeyDown(VK_OEM_4)) water->SetWaterLevel(water->GetWaterLevel() - 2.0f);   // [
             if (input.GetKeyDown(VK_OEM_6)) water->SetWaterLevel(water->GetWaterLevel() + 2.0f);   // ]
+
+            continue;
+        }
+
+        // ---- 폭포 (S90) ----
+        if (WaterfallRenderer* waterfall = object->GetComponent<WaterfallRenderer>())
+        {
+            if (input.GetKeyDown('5'))
+            {
+                waterfall->Toggle();
+                dxutil::DebugLog(L"[Waterfall] %s", waterfall->IsEnabled() ? L"켬" : L"끔");
+            }
+            if (input.GetKeyDown('6'))
+                waterfall->ToggleDebug();
+            if (input.GetKeyDown('7'))
+                waterfall->NextSite();
+
+            // 폭포 앞으로 카메라를 옮긴다 (물길은 지형에서 찾으므로 어디 있는지 미리 알 수 없다)
+            if (input.GetKeyDown('8'))
+            {
+                XMFLOAT3 eye{}, target{};
+                if (waterfall->GetViewpoint(eye, target))
+                {
+                    for (const auto& other : scene->GetGameObjects())
+                    {
+                        if (!other || other->IsPendingDestroy())
+                            continue;
+
+                        if (Camera* camera = other->GetComponent<Camera>())
+                        {
+                            camera->SetPosition(eye);
+                            camera->LookAt(target);
+                            break;
+                        }
+                    }
+                }
+            }
 
             continue;
         }

@@ -154,6 +154,21 @@ public:
     // 불투명 결과를 복사해 두고(한 프레임에 한 번) 수면을 그린다.
     void DrawWater(const Mesh& mesh, DirectX::FXMMATRIX world, const WaterDrawParams& params);
 
+    // ---- 폭포 (S90) ----
+    //  CPU 가 만든 물줄기 리본을 반투명하게 그린다. 깊이는 보되 쓰지 않고, 얇은 판이라 양면을 그린다.
+    struct WaterfallDrawParams
+    {
+        DirectX::XMFLOAT4 waterColor{ 0.55f, 0.73f, 0.80f, 0.88f };   // rgb 물빛 / a 기본 불투명도
+        DirectX::XMFLOAT4 foamColor{ 0.95f, 0.98f, 1.0f, 1.0f };
+        DirectX::XMFLOAT4 lightDirection{ -0.45f, -1.0f, 0.35f, 0.0f };
+        float time = 0.0f;
+        float flowSpeed = 1.0f;    // 무늬가 흘러내리는 속도 배율
+        float breakup = 1.0f;      // 떨어지며 물보라로 부서지는 정도
+        bool  debug = false;       // 공중 구간 빨강 · 지면 구간 파랑
+    };
+
+    void DrawWaterfall(const Mesh& mesh, DirectX::FXMMATRIX world, const WaterfallDrawParams& params);
+
     // ---- 물결 높이 텍스처 보기 (S82) ----
     //  화면의 정사각형 창 하나에 높이 텍스처를 색으로 그린다. GDI 오버레이보다 먼저 불러야 한다.
     struct RippleViewParams
@@ -205,6 +220,7 @@ private:
     bool CreateTessPipeline();       // 테셀레이션 셰이더와 상수 버퍼
     bool CreatePassTargets();        // 반사 렌더 타깃, 화면 색 / 깊이 복사본 (S76, S77)
     bool CreateWaterPipeline();      // 물 셰이더와 상수 버퍼
+    bool CreateWaterfallPipeline();  // 폭포 셰이더와 상수 버퍼 (S90)
     bool CreateRippleViewPipeline(); // 물결 텍스처 보기 (S82)
     void CaptureOpaqueScene();       // 불투명까지 그린 화면 색과 깊이를 복사한다
 
@@ -261,6 +277,10 @@ private:
     ComPtr<ID3D11Buffer>             m_waterConstantBuffer;
     std::shared_ptr<Shader>          m_waterShader;
     ComPtr<ID3D11SamplerState>       m_oceanSampler;   // 파도 텍스처 : 반복 + 비등방 (S85)
+
+    ComPtr<ID3D11Buffer>             m_waterfallConstantBuffer;
+    std::shared_ptr<Shader>          m_waterfallShader;
+    ComPtr<ID3D11RasterizerState>    m_rasterNoCullState;   // 얇은 물줄기는 양면이 보인다 (S90)
 
     ComPtr<ID3D11Buffer>             m_rippleViewConstantBuffer;
     std::shared_ptr<Shader>          m_rippleViewShader;

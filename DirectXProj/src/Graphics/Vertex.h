@@ -96,6 +96,24 @@ struct WaterConstantBuffer
     DirectX::XMFLOAT4   shore;         // xy 해안 마스크 원점 / z 크기 / w 있음 (S81)
 };
 
+// 폭포 상수 버퍼 (b0) - Shaders/Waterfall.hlsl 과 순서가 같아야 한다 (S90)
+//  float4x4 2개(128) + float4 10개(160) = 288 bytes
+struct WaterfallConstantBuffer
+{
+    DirectX::XMFLOAT4X4 wvp;
+    DirectX::XMFLOAT4X4 world;
+    DirectX::XMFLOAT4   eyePosition;    // xyz 카메라 / w 시간
+    DirectX::XMFLOAT4   waterColor;     // rgb 물빛 / a 기본 불투명도
+    DirectX::XMFLOAT4   foamColor;      // rgb 흰 거품 / a 거품 세기
+    DirectX::XMFLOAT4   lightDirection;
+    DirectX::XMFLOAT4   projection;     // x near / y far / z 1/폭 / w 1/높이
+    DirectX::XMFLOAT4   fogColor;
+    DirectX::XMFLOAT4   fogParams;
+    DirectX::XMFLOAT4   params;         // x 무늬 흐름 속도 / y 부서짐 / z 예비 / w 디버그 색
+    DirectX::XMFLOAT4   camRight;       // 물보라 빌보드용 카메라 축
+    DirectX::XMFLOAT4   camUp;
+};
+
 // 테셀레이션 지형 상수 버퍼 (b0) : 64 * 2 + 16 * 7 = 240 bytes
 struct TessConstantBuffer
 {

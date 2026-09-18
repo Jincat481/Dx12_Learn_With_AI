@@ -32,6 +32,7 @@ bool Graphics::Initialize(HWND hwnd, int width, int height)
     if (!CreateTessPipeline())           return false;
     if (!CreatePassTargets())            return false;
     if (!CreateWaterPipeline())          return false;
+    if (!CreateWaterfallPipeline())      return false;
     if (!CreateRippleViewPipeline())     return false;
 
     TextureManager::Get().Initialize(m_device.Get());
@@ -76,6 +77,9 @@ void Graphics::Shutdown()
     m_skyConstantBuffer.Reset();
     m_rippleViewShader.reset();
     m_rippleViewConstantBuffer.Reset();
+    m_rasterNoCullState.Reset();
+    m_waterfallShader.reset();
+    m_waterfallConstantBuffer.Reset();
     m_waterShader.reset();
     m_oceanSampler.Reset();
     m_waterConstantBuffer.Reset();
@@ -1091,6 +1095,123 @@ void Graphics::DrawWater(const Mesh& mesh, FXMMATRIX world, const WaterDrawParam
     ID3D11ShaderResourceView* nullViews[11] = {};
     m_context->VSSetShaderResources(3, 5, nullViews);
     m_context->PSSetShaderResources(0, 11, nullViews);
+}
+
+// =============================================================
+// 폭포 (S90)
+// =============================================================
+bool Graphics::CreateWaterfallPipeline()
+{
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth      = sizeof(WaterfallConstantBuffer);
+    cbDesc.Usage          = D3D11_USAGE_DYNAMIC;
+    cbDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    if (DX_FAILED(m_device->CreateBuffer(&cbDesc, nullptr, m_waterfallConstantBuffer.GetAddressOf()),
+                  L"CreateBuffer(waterfall constant)"))
+        return false;
+
+    // 물줄기는 종이처럼 얇아 뒷면도 보여야 한다
+    D3D11_RASTERIZER_DESC rasterDesc = {};
+    rasterDesc.FillMode = D3D11_FILL_SOLID;
+    rasterDesc.CullMode = D3D11_CULL_NONE;
+    rasterDesc.DepthClipEnable = TRUE;
+    if (DX_FAILED(m_device->CreateRasterizerState(&rasterDesc, m_rasterNoCullState.GetAddressOf()),
+                  L"CreateRasterizerState(waterfall)"))
+        return false;
+
+    Shader::Desc shaderDesc;
+    shaderDesc.vsPath = Paths::Resolve(L"Shaders/Waterfall.hlsl");
+    shaderDesc.psPath = shaderDesc.vsPath;
+    shaderDesc.vsEntry = "VSMain";
+    shaderDesc.psEntry = "PSMain";
+    shaderDesc.layout = TerrainVertex::kLayout;
+    shaderDesc.layoutCount = TerrainVertex::kLayoutCount;
+
+    m_waterfallShader = std::make_shared<Shader>();
+    if (!m_waterfallShader->Load(m_device.Get(), shaderDesc))
+    {
+        dxutil::DebugLog(L"[Graphics] 폭포 셰이더 로드 실패 : %s", m_waterfallShader->GetLastError().c_str());
+        return false;
+    }
+
+    ShaderManager::Get().Register("Waterfall", m_waterfallShader);
+    return true;
+}
+
+void Graphics::DrawWaterfall(const Mesh& mesh, FXMMATRIX world, const WaterfallDrawParams& params)
+{
+    if (!m_context || !mesh.IsValid() || !m_waterfallShader || !m_waterfallShader->IsValid())
+        return;
+
+    // 지형과 만나는 선을 부드럽게 하려면 이미 그려진 깊이가 필요하다 (S77)
+    CaptureOpaqueScene();
+
+    const XMMATRIX view = XMLoadFloat4x4(&m_view3D);
+    const XMMATRIX projection = XMLoadFloat4x4(&m_projection3D);
+    const XMMATRIX wvp = world * view * projection;
+
+    const float m33 = m_projection3D._33;
+    const float m43 = m_projection3D._43;
+    const float nearZ = -m43 / m33;
+    const float farZ = m43 / (1.0f - m33);
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(m_context->Map(m_waterfallConstantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        WaterfallConstantBuffer* cb = static_cast<WaterfallConstantBuffer*>(mapped.pData);
+        XMStoreFloat4x4(&cb->wvp, XMMatrixTranspose(wvp));
+        XMStoreFloat4x4(&cb->world, XMMatrixTranspose(world));
+        cb->eyePosition = XMFLOAT4(m_eyePosition.x, m_eyePosition.y, m_eyePosition.z, params.time);
+        cb->waterColor = params.waterColor;
+        cb->foamColor = params.foamColor;
+
+        XMVECTOR light = XMVector3Normalize(XMVectorSetW(XMLoadFloat4(&params.lightDirection), 0.0f));
+        XMStoreFloat4(&cb->lightDirection, light);
+
+        cb->projection = XMFLOAT4(nearZ, farZ, 1.0f / static_cast<float>(m_width), 1.0f / static_cast<float>(m_height));
+        cb->fogColor = m_fog.color;
+        cb->fogParams = m_fog.params;
+        cb->params = XMFLOAT4(params.flowSpeed, params.breakup, 0.0f, params.debug ? 1.0f : 0.0f);
+
+        // 물보라는 카메라를 향한 사각형으로 편다. 뷰 행렬의 열이 곧 카메라의 오른쪽 · 위쪽이다.
+        cb->camRight = XMFLOAT4(m_view3D._11, m_view3D._21, m_view3D._31, 0.0f);
+        cb->camUp    = XMFLOAT4(m_view3D._12, m_view3D._22, m_view3D._32, 0.0f);
+
+        m_context->Unmap(m_waterfallConstantBuffer.Get(), 0);
+    }
+
+    // 반투명 : 깊이는 보되 쓰지 않는다. 물줄기끼리 겹쳐도 앞뒤가 서로를 지우지 않는다.
+    const float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xFFFFFFFF);
+    m_context->OMSetDepthStencilState(m_depthSkyState.Get(), 0);
+    m_context->RSSetState(m_rasterNoCullState.Get());
+
+    const UINT stride = mesh.GetStride();
+    const UINT offset = 0;
+    ID3D11Buffer* vertexBuffer = mesh.GetVertexBuffer();
+
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    m_context->IASetIndexBuffer(mesh.GetIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+    m_waterfallShader->Bind(m_context.Get());
+    m_context->VSSetConstantBuffers(0, 1, m_waterfallConstantBuffer.GetAddressOf());
+    m_context->PSSetConstantBuffers(0, 1, m_waterfallConstantBuffer.GetAddressOf());
+
+    ID3D11ShaderResourceView* depth = m_sceneDepthSRV.Get();
+    m_context->PSSetShaderResources(0, 1, &depth);
+    m_context->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());
+
+    m_context->DrawIndexed(mesh.GetIndexCount(), 0, 0);
+
+    // 뒤따르는 그리기가 영향을 받지 않도록 되돌린다
+    ID3D11ShaderResourceView* nullView = nullptr;
+    m_context->PSSetShaderResources(0, 1, &nullView);
+    m_context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    m_context->OMSetDepthStencilState(m_depthEnabledState.Get(), 0);
+    m_context->RSSetState(m_rasterSolidState.Get());
 }
 
 // =============================================================

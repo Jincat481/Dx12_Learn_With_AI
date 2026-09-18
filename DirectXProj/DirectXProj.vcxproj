@@ -140,6 +140,7 @@
     <ClCompile Include="src\Terrain\HydraulicErosion.cpp" />
     <ClCompile Include="src\Terrain\TerrainErosion.cpp" />
     <ClCompile Include="src\Engine\WaterRenderer.cpp" />
+    <ClCompile Include="src\Engine\WaterfallRenderer.cpp" />
     <ClCompile Include="src\Engine\WaterRipples.cpp" />
     <ClCompile Include="src\Engine\WaveParticles.cpp" />
     <ClCompile Include="src\Engine\OceanWaves.cpp" />
@@ -199,6 +200,7 @@
     <ClInclude Include="src\Terrain\HydraulicErosion.h" />
     <ClInclude Include="src\Terrain\TerrainErosion.h" />
     <ClInclude Include="src\Engine\WaterRenderer.h" />
+    <ClInclude Include="src\Engine\WaterfallRenderer.h" />
     <ClInclude Include="src\Engine\WaterRipples.h" />
     <ClInclude Include="src\Engine\WaveParticles.h" />
     <ClInclude Include="src\Engine\OceanWaves.h" />
@@ -229,6 +231,7 @@
     <None Include="Shaders\WaterVS.hlsl" />
     <None Include="Shaders\WaterPS.hlsl" />
     <None Include="Shaders\RippleSim.hlsl" />
+    <None Include="Shaders\Waterfall.hlsl" />
     <None Include="Shaders\RippleView.hlsl" />
     <None Include="Shaders\OceanSim.hlsl" />
   </ItemGroup>
